@@ -1,0 +1,11 @@
+*.pyc
+__pycache__
+ckpt
+.idea
+*~
+.python-version
+config.py
+test_config.py
+.png
+.jpg
+*\framework
