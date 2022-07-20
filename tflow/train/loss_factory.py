@@ -1,18 +1,21 @@
-from train.loss_pool import *
-import train.loss_pool as loss
-import utils.util_function as uf
-import config as cfg
+import utils.tflow.util_function as uf
+from RIDet3DAddon.tflow.train.loss_pool import *
+import RIDet3DAddon.tflow.utils.util_function as uf3d
+import RIDet3DAddon.config as cfg3d
 
 
 class IntegratedLoss:
     def __init__(self, loss_weights, valid_category):
-        self.use_ignore_mask = cfg.Train.IGNORE_MASK
-        self.loss_weights = loss_weights
-        self.iou_aware = cfg.ModelOutput.IOU_AWARE
-        self.num_scale = len(cfg.ModelOutput.FEATURE_SCALES)
+        self.use_ignore_mask = cfg3d.Train.IGNORE_MASK
+        self.loss_weights = dict(loss_weights["bboxes_2d"], **loss_weights["bboxes_3d"])
+        self.loss_2d_weights = loss_weights["bboxes_2d"]
+        self.loss_3d_weights = loss_weights["bboxes_3d"]
+        self.iou_aware = cfg3d.ModelOutput.IOU_AWARE
+        self.num_scale = len(cfg3d.ModelOutput.FEATURE_SCALES)
         # self.valid_category: binary mask of categories, (1, 1, K)
         self.valid_category = uf.convert_to_tensor(valid_category, 'float32')
-        self.scaled_loss_objects = self.create_scale_loss_objects(loss_weights)
+        self.scaled_loss_2d_objects = self.create_scale_loss_objects(loss_weights["bboxes_2d"])
+        self.scaled_loss_3d_objects = self.create_scale_loss_objects(loss_weights["bboxes_3d"])
 
     def create_scale_loss_objects(self, loss_weights):
         loss_objects = dict()
@@ -21,20 +24,31 @@ class IntegratedLoss:
         return loss_objects
 
     def __call__(self, features, predictions):
-        grtr_slices = uf.merge_and_slice_features(features, True)
-        pred_slices = uf.merge_and_slice_features(predictions, False)
+        grtr_slices = uf3d.merge_and_slice_features(features, True)
+        pred_slices = uf3d.merge_and_slice_features(predictions, False)
         total_loss = 0
         loss_by_type = {loss_name: 0 for loss_name in self.loss_weights}
         for scale in range(self.num_scale):
-            auxi = self.prepare_box_auxiliary_data(grtr_slices["feat"], grtr_slices["inst"]["bboxes"],
-                                                   pred_slices["feat"], scale)
-            for loss_name, loss_object in self.scaled_loss_objects.items():
+            auxi = self.prepare_box_auxiliary_data(grtr_slices["feat2d"], grtr_slices["inst"]["bboxes2d"],
+                                                   pred_slices["feat2d"], scale)
+            for loss_name, loss_object in self.scaled_loss_2d_objects.items():
                 loss_map_suffix = loss_name + "_map"
                 if loss_map_suffix not in loss_by_type:
                     loss_by_type[loss_map_suffix] = []
 
-                scalar_loss, loss_map = loss_object(grtr_slices["feat"], pred_slices["feat"], auxi, scale)
-                weight = self.loss_weights[loss_name][0][scale]
+                scalar_loss, loss_map = loss_object(grtr_slices["feat2d"], pred_slices["feat2d"], auxi, scale)
+                weight = self.loss_2d_weights[loss_name][0][scale]
+                total_loss += scalar_loss * weight
+                loss_by_type[loss_name] += scalar_loss
+                loss_by_type[loss_map_suffix].append(loss_map)
+
+            for loss_name, loss_object in self.scaled_loss_3d_objects.items():
+                loss_map_suffix = loss_name + "_map"
+                if loss_map_suffix not in loss_by_type:
+                    loss_by_type[loss_map_suffix] = []
+
+                scalar_loss, loss_map = loss_object(grtr_slices["feat3d"], pred_slices["feat3d"], auxi, scale)
+                weight = self.loss_3d_weights[loss_name][0][scale]
                 total_loss += scalar_loss * weight
                 loss_by_type[loss_name] += scalar_loss
                 loss_by_type[loss_map_suffix].append(loss_map)

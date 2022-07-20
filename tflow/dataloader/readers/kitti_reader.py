@@ -4,7 +4,7 @@ from glob import glob
 import cv2
 
 from dataloader.readers.reader_base import DatasetReaderBase, DriveManagerBase
-import dataloader.data_util as tu
+import dataloader.tflow.data_util as tu
 import utils.util_class as uc
 
 
@@ -43,6 +43,26 @@ class KittiReader(DatasetReaderBase):
         depth = np.load(depth_file)
         depth = np.moveaxis(depth, [2, 3, 1, 0], [0, 1, 2, 3])[..., 0]
         return depth
+
+    def get_intrinsic(self, index):
+        calib_dict = dict()
+        image_file = self.frame_names[index]
+        calib_file = image_file.replace("image_2", "calib").replace(".png", ".txt")
+        with open(calib_file, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                new_line = []
+                line = line.split(" ")
+                if len(line) == 1:
+                    pass
+                else:
+                    line[0] = line[0].rstrip(":")
+                    line[-1] = line[-1].rstrip("\n")
+                    for a in line[1:]:
+                        new_line.append(float(a))
+                    calib_dict[line[0]] = new_line
+            calib_dict["P2"] = np.reshape(np.array(calib_dict["P2"]), (3, 4))
+            return calib_dict["P2"].astype(np.float32)
 
     def get_bboxes(self, index, raw_hw_shape=None):
         """

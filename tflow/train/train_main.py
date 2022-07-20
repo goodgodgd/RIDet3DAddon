@@ -1,15 +1,15 @@
 import settings
-from train.train_plan import train_by_plan
+from RIDet3DAddon.tflow.train.train_plan import train_by_plan
 import numpy as np
-import utils.util_function as uf
+import utils.tflow.util_function as uf
 
-import config as cfg
+import RIDet3DAddon.config as cfg3d
 
 
 def train_main():
     uf.set_gpu_configs()
     end_epoch = 0
-    for dataset_name, epochs, learning_rate, loss_weights, lr_hold in cfg.Train.TRAINING_PLAN:
+    for dataset_name, epochs, learning_rate, loss_weights, lr_hold in cfg3d.Train.TRAINING_PLAN:
         end_epoch += epochs
         train_by_plan(dataset_name, end_epoch, learning_rate, loss_weights, lr_hold)
 

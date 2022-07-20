@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 
 import utils.util_class as uc
-import utils.util_function as uf
+import utils.tflow.util_function as uf
 
 
 class PreprocessBase:

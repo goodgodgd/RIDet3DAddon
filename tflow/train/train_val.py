@@ -3,10 +3,10 @@ import tensorflow as tf
 from timeit import default_timer as timer
 
 import config as cfg
-import utils.util_function as uf
-from train.train_util import mode_decor
-import train.train_util as tu
-from log.logger import Logger
+import utils.tflow.util_function as uf
+from RIDet3DAddon.tflow.train.train_util import mode_decor
+import RIDet3DAddon.tflow.train.train_util as tu
+from RIDet3DAddon.tflow.log.logger import Logger
 
 
 class TrainValBase:
@@ -37,9 +37,11 @@ class TrainValBase:
                               f"time={timer() - start:.3f}, "
                               f"total={total_loss:.3f}, "
                               f"box={loss_by_type['iou']:.3f}, "
-                              f"object={loss_by_type['object']:.3f}, "
-                              f"distance={loss_by_type['distance']:.3f}, "
-                              f"category={loss_by_type['category']:.3f}, ")
+                              f"object={loss_by_type['object_2d']:.3f}, "
+                              f"category={loss_by_type['category_2d']:.3f}, "
+                              f"box_3d={loss_by_type['box_3d']:.3f}, "
+                              f"theta={loss_by_type['theta']:.3f}, "
+                              f"category_3d={loss_by_type['category_3d']:.3f}, ")
 
             if step >= self.epoch_steps:
                 break
@@ -66,18 +68,21 @@ class ModelTrainer(TrainValBase):
             features = self.augmenter(features)
         for i in range(features["image"].shape[0]):
             feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            feat_2d_map, feat_3d_map = self.feature_creator.create(features["bboxes2d"][i].numpy(),
-                                                                   features["bboxes3d"][i].numpy(), feat_sizes)
+            feat_2d_map, feat_3d_map, feat_2d_logit, feat_3d_logit = \
+                self.feature_creator.create(features["bboxes2d"][i].numpy(), features["bboxes3d"][i].numpy(), feat_sizes)
             features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
             features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
+            features["feat2d_logit"] = tu.create_batch_featmap(features, feat_2d_logit, "2d_logit")
+            features["feat3d_logit"] = tu.create_batch_featmap(features, feat_3d_logit, "3d_logit")
         features = tu.gt_feat_rename(features)
-
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
+        rgbd = tf.concat([features["image"], features["depth"]], axis=-1)
+        input_data = {"image": rgbd, "intrinsic": features["intrinsic"]}
         with tf.GradientTape() as tape:
-            prediction = self.model(features["image"], training=True)
+            prediction = self.model(input_data, training=True)
             total_loss, loss_by_type = self.loss_object(features, prediction)
 
         grads = tape.gradient(total_loss, self.model.trainable_weights)
@@ -192,13 +197,17 @@ class ModelValidater(TrainValBase):
     def run_batch(self, features):
         for i in range(features["image"].shape[0]):
             feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            featmap = self.feature_creator.create(features["bboxes"][i].numpy(), feat_sizes)
-            features["feat"] = tu.create_batch_featmap(features, featmap)
+            feat_2d_map, feat_3d_map = self.feature_creator.create(features["bboxes2d"][i].numpy(),
+                                                                   features["bboxes3d"][i].numpy(), feat_sizes)
+            features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
+            features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
         features = tu.gt_feat_rename(features)
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
-        prediction = self.model(features["image"])
+        rgbd = tf.concat([features["image"], features["depth"]], axis=-1)
+        input_data = {"image": rgbd, "intrinsic": features["intrinsic"]}
+        prediction = self.model(input_data)
         total_loss, loss_by_type = self.loss_object(features, prediction)
         return prediction, total_loss, loss_by_type, features

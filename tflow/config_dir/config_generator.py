@@ -1,7 +1,6 @@
 import numpy as np
 
-import config_dir.meta_config as meta
-import config_dir.parameter_pool as params
+import RIDet3DAddon.tflow.config_dir.meta_config as meta
 
 np.set_printoptions(precision=5)
 
@@ -98,16 +97,6 @@ def set_dataset_and_get_config(dataset):
     dataset_cfg = getattr(meta.Datasets, dataset.capitalize())  # e.g. meta.Datasets.Kitti
     meta.Datasets.DATASET_CONFIGS = dataset_cfg
     print(meta.Datasets.DATASET_CONFIGS)
-
-    if dataset == "kitti":
-        basic_anchor = params.Anchor.KITTI_YOLOv4
-        anchor_resolution = np.array(params.Anchor.KITTI_RESOLUTION, dtype=np.float32)
-    else:
-        assert 0, f"{dataset} dataset is NOT expected"
-
-    input_resolution = np.array(dataset_cfg.INPUT_RESOLUTION, dtype=np.float32)
-    scale = np.min(input_resolution / anchor_resolution)
-    meta.Dataloader.ANCHORS_PIXEL = np.around(basic_anchor * scale, 1)
 
     return meta.Datasets.DATASET_CONFIGS
 

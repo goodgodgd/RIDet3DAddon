@@ -1,7 +1,8 @@
 import numpy as np
 
 import config as cfg
-import utils.util_function as uf
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.utils.util_function as uf3d
 
 
 class FeatureMapDistributer:
@@ -9,8 +10,8 @@ class FeatureMapDistributer:
         self.ditrib_policy = eval(ditrib_policy)(anchors_per_scale)
 
     def create(self, bboxes2d, bboxes3d, feat_sizes):
-        bbox2d_map, bbox3d_map = self.ditrib_policy(bboxes2d, bboxes3d, feat_sizes)
-        return bbox2d_map, bbox3d_map
+        bbox2d_map, bbox3d_map, bbox2d_logit, bbox3d_logit = self.ditrib_policy(bboxes2d, bboxes3d, feat_sizes)
+        return bbox2d_map, bbox3d_map, bbox2d_logit, bbox3d_logit
 
 
 class ObjectDistribPolicy:
@@ -122,43 +123,66 @@ class MultiPositivePolicy(ObjectDistribPolicy):
 
 class OTAPolicy(ObjectDistribPolicy):
     def __init__(self, anchors_per_scale, center_radius=cfg.FeatureDistribPolicy.CENTER_RADIUS,
-                 resolution=cfg.Datasets.DATASET_CONFIGS.INPUT_RESOLUTION,
-                 box_standard=cfg.FeatureDistribPolicy.BOX_SIZE_STANDARD):
+                 resolution=cfg.Datasets.DATASET_CONFIGS.INPUT_RESOLUTION):
         super().__init__(anchors_per_scale)
         self.center_radius = center_radius
         self.resolution = resolution
 
-    def __call__(self, bboxes, feat_sizes):
-        valid_bboxes = bboxes[bboxes[..., 2] > 0]
-        bboxes_pixel = uf.convert_box_scale_01_to_pixel(valid_bboxes)
+    def __call__(self, bboxes2d, bboxes3d, feat_sizes):
+        valid_bboxes2d = bboxes2d[bboxes2d[..., 2] > 0]
+        valid_bboxes3d = bboxes3d[bboxes2d[..., 2] > 0]
+        logit_2d_box = self.de_sigmoid(valid_bboxes2d)
+        logit_3d_box = self.de_sigmoid(valid_bboxes3d)
+        obj_logit = self.de_sigmoid(0.8)
+        bboxes_pixel = uf3d.convert_box_scale_01_to_pixel(valid_bboxes2d)
         under_sizes, upper_sizes = self.scale_limit()
         box_scales = self.find_box_scales(bboxes_pixel, under_sizes, upper_sizes)
         box_grid_coords = self.find_box_grid_coordinates(bboxes_pixel)
-        gt_features = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes.shape[-1]), dtype=np.float32)
+        gt_2d_features = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes2d.shape[-1]), dtype=np.float32)
+                          for feat_shape in feat_sizes]
+        gt_2d_logit = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes2d.shape[-1]), dtype=np.float32)
+                       for feat_shape in feat_sizes]
+        gt_3d_features = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes3d.shape[-1]), dtype=np.float32)
+                          for feat_shape in feat_sizes]
+        gt_3d_logit = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes3d.shape[-1]), dtype=np.float32)
                        for feat_shape in feat_sizes]
 
         for i, grid_size in enumerate(self.feat_order):
-            feat_map = gt_features[i]
-            multi_obj_map = feat_map.copy()
+            feat2d_map = gt_2d_features[i]
+            feat2d_logit = feat2d_map.copy()
+            multi2d_map = feat2d_map.copy()
+            multi2d_logit = feat2d_map.copy()
+
+            feat3d_map = gt_3d_features[i]
+            feat3d_logit = feat3d_map.copy()
+            multi3d_map = feat3d_map.copy()
+            multi3d_logit = feat3d_map.copy()
+
             box_scale = box_scales[..., i]
             box_grid_coord = box_grid_coords[..., i, :]
             valid_grid_yx = box_grid_coord[box_scale].astype(np.int)
-            feat_map[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = valid_bboxes[box_scale][..., np.newaxis, :]
 
-            norm_radius = self.center_radius / feat_sizes[i]
-            rx = np.arange(0, feat_sizes[i][1])
-            ry = np.arange(0, feat_sizes[i][0])
-            x_grid, y_grid = np.meshgrid(rx, ry)
-            y_grid_center = ((y_grid + 0.5) / feat_sizes[i][0])[np.newaxis, ...]
-            x_grid_center = ((x_grid + 0.5) / feat_sizes[i][1])[np.newaxis, ...]
-            valid_bbox_mask = self.bbox_mask(valid_bboxes[box_scale], y_grid_center, x_grid_center, False)
-            valid_center_mask = self.center_mask(valid_bboxes[box_scale], y_grid_center, x_grid_center, norm_radius)
-            valid_mask = valid_bbox_mask & valid_center_mask
-            multi_obj_map[..., 4] = multi_obj_map[..., 4] + valid_mask[..., np.newaxis] * 0.8
-            feat_map = np.maximum(multi_obj_map, feat_map)
-            # print("generator", np.sum(feat_map == 1))
-            gt_features[i] = feat_map
-        return gt_features
+            feat2d_map[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = valid_bboxes2d[box_scale][..., np.newaxis, :]
+            feat2d_logit[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = logit_2d_box[box_scale][..., np.newaxis, :]
+
+            feat3d_map[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = valid_bboxes3d[box_scale][..., np.newaxis, :]
+            feat3d_logit[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = logit_3d_box[box_scale][..., np.newaxis, :]
+
+            valid_mask = self.create_multi_mask(feat_sizes[i], valid_bboxes2d, box_scale)
+
+            multi2d_map[..., 4] = multi2d_map[..., 4] + valid_mask[..., np.newaxis] * 0.8
+            multi2d_logit[..., 4] = multi2d_logit[..., 4] + valid_mask[..., np.newaxis] * obj_logit
+            multi2d_logit[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = logit_2d_box[box_scale][..., np.newaxis, :]
+            multi3d_map[..., 7] = multi3d_map[..., 7] + valid_mask[..., np.newaxis] * 0.8
+            multi3d_logit[..., 7] = multi3d_logit[..., 7] + valid_mask[..., np.newaxis] * obj_logit
+            multi3d_logit[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = logit_3d_box[box_scale][..., np.newaxis, :]
+            feat2d_map = np.maximum(multi2d_map, feat2d_map)
+            feat3d_map = np.maximum(multi3d_map, feat3d_map)
+            gt_2d_features[i] = feat2d_map
+            gt_3d_features[i] = feat3d_map
+            gt_2d_logit[i] = multi2d_logit
+            gt_3d_logit[i] = multi3d_logit
+        return gt_2d_features, gt_3d_features, gt_2d_logit, gt_3d_logit
 
     def find_box_scales(self, bboxes_pixel, under_sizes, upper_sizes):
         diag_length = np.linalg.norm(bboxes_pixel[..., 2:4], axis=-1)
@@ -166,6 +190,9 @@ class OTAPolicy(ObjectDistribPolicy):
         for under, upper in zip(under_sizes, upper_sizes):
             bbox_scales.append(np.logical_and(diag_length > under, diag_length < upper))
         bbox_scales = np.stack(bbox_scales, axis=-1)
+        for box_index in range(len(bbox_scales)):
+            assert (np.any(bbox_scales[box_index])) or (not np.all(bbox_scales[box_index])), \
+                f"to check box scales. {bbox_scales[box_index]}"
         return bbox_scales
 
     def find_box_grid_coordinates(self, bboxes_pixel):
@@ -177,14 +204,14 @@ class OTAPolicy(ObjectDistribPolicy):
         under_sizes = list()
         upper_sizes = list()
         for feat_size in self.feat_order:
-            under_sizes.append(feat_size * np.sqrt(2))
+            under_sizes.append(feat_size * np.sqrt(2) / 2)
             upper_sizes.append(feat_size * np.sqrt(2) * 3)
         # no upper bound for large scale
         upper_sizes[-1] = 10000
         return under_sizes, upper_sizes
 
     def check_scale(self, bbox, under_sizes, upper_sizes):
-        bbox_size = (bbox[2] ** 2 + bbox[3] ** 2) ** (1 / 2)
+        bbox_size = (bbox[2]**2 + bbox[3]**2)**(1/2)
         bbox_scales = list()
         if bbox_size < upper_sizes[0]:
             bbox_scales.append(0)
@@ -193,6 +220,18 @@ class OTAPolicy(ObjectDistribPolicy):
         if under_sizes[2] < bbox_size:
             bbox_scales.append(2)
         return bbox_scales
+
+    def create_multi_mask(self, feat_size, box_2d, box_scale):
+        norm_radius = self.center_radius / feat_size
+        rx = np.arange(0, feat_size[1])
+        ry = np.arange(0, feat_size[0])
+        x_grid, y_grid = np.meshgrid(rx, ry)
+        y_grid_center = ((y_grid + 0.5) / feat_size[0])[np.newaxis, ...]
+        x_grid_center = ((x_grid + 0.5) / feat_size[1])[np.newaxis, ...]
+        valid_bbox_mask = self.bbox_mask(box_2d[box_scale], y_grid_center, x_grid_center, False)
+        valid_center_mask = self.center_mask(box_2d[box_scale], y_grid_center, x_grid_center, norm_radius)
+        valid_mask = valid_bbox_mask & valid_center_mask
+        return valid_mask
 
     def bbox_mask(self, bbox, y_grid_center, x_grid_center, use_half):
         """
@@ -237,3 +276,10 @@ class OTAPolicy(ObjectDistribPolicy):
         in_valid_center_bboxes = np.min(center_deltas, axis=-1) > 0
         in_valid_all_center = np.sum(in_valid_center_bboxes, axis=0) > 0
         return in_valid_all_center
+
+    def de_sigmoid(self, x, eps=1e-7):
+        x = np.maximum(x, eps)
+        x = np.minimum(x, 1 / eps)
+        x = x / (1 - x)
+        x = np.log(x)
+        return x

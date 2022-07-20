@@ -6,10 +6,11 @@ import os
 from log.exhaustive_log import ExhaustiveLog
 from log.history_log import HistoryLog
 from log.visual_log import VisualLog
-import utils.util_function as uf
-import model.model_util as mu
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.utils.util_function as uf3d
+import RIDet3DAddon.tflow.model.model_util as mu
 import config as cfg
-import config_dir.util_config as uc
+import RIDet3DAddon.tflow.config_dir.util_config as uc
 
 
 class Logger:
@@ -32,10 +33,12 @@ class Logger:
         self.check_nan(grtr, "grtr")
         self.check_nan(pred, "pred")
         self.check_nan(loss_by_type, "loss")
-        grtr_slices = uf.merge_and_slice_features(grtr, True)
-        pred_slices = uf.merge_and_slice_features(pred, False)
-        nms_boxes = self.nms(pred_slices["feat"])
-        pred_slices["inst"]["bboxes"] = uf.slice_feature(nms_boxes, uc.get_bbox_composition(False))
+        grtr_slices = uf3d.merge_and_slice_features(grtr, True)
+        pred_slices = uf3d.merge_and_slice_features(pred, False)
+        nms_boxes = self.nms(pred_slices["feat2d"])
+        pred_slices["inst"]["bboxes2d"] = uf.slice_feature(nms_boxes, uc.get_bbox_composition(False))
+        nms_boxes = self.nms(pred_slices["feat3d"])
+        pred_slices["inst"]["bboxes3d"] = uf.slice_feature(nms_boxes, uc.get_3d_bbox_composition(False))
 
         for key, feature_slices in grtr_slices.items():
             grtr_slices[key] = uf.convert_tensor_to_numpy(feature_slices)

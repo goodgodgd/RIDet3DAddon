@@ -1,9 +1,9 @@
 import math
 import tensorflow as tf
 
-import utils.util_function as uf
-import config as cfg
-import config_dir.util_config as uc
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.config_dir.util_config as uc
+import RIDet3DAddon.tflow.model.model_util as mu
 
 
 class FeatureDecoder:
@@ -16,9 +16,9 @@ class FeatureDecoder:
         self.const_3 = tf.constant(3, dtype=tf.float32)
         self.const_log_2 = tf.math.log(tf.constant(2, dtype=tf.float32))
         self.channel_compos = channel_compos
-        self.sensitive_value = 1.05
+        self.sigmwm = mu.SigmWM()
 
-    def __call__(self, feature, scale_ind):
+    def __call__(self, feature, scale_ind, intrinsic, box_2d):
         """
         :param feature: raw feature map predicted by model (batch, grid_h, grid_w, anchor, channel)
         :param scale_ind: scale name e.g. 0~2
@@ -28,14 +28,14 @@ class FeatureDecoder:
         anchors_ratio = self.anchors_per_scale[scale_ind]
 
         decoded = dict()
-        # TODO decode yx inverse projection
-        box_yx = self.decode_yx(slices["yxhwl"][..., :2])
+        box_yx = self.decode_yx(slices["yxhwl"][..., :2], box_2d)
         box_hwl = self.decode_hwl(slices["yxhwl"][..., 2:], anchors_ratio)
-        decoded["yxhwl"] = tf.concat([box_yx, box_hwl], axis=-1)
         decoded["z"] = 10 * tf.exp(slices["z"])
-        decoded["theta"] = (tf.sigmoid(slices["theta"]) * 1.4 - 0.2) * (math.pi / 2)
+        box_yx = self.inv_proj(box_yx, decoded["z"], intrinsic)
+        decoded["yxhwl"] = tf.concat([box_yx, box_hwl], axis=-1)
+        decoded["theta"] = self.sigmwm(slices["theta"], math.pi/36) * (math.pi / 2)
         decoded["object"] = tf.sigmoid(slices["object"])
-        decoded["category"] = tf.sigmoid(slices["category"])
+        decoded["category"] = tf.nn.softmax(slices["category"])
 
         bbox_pred = [decoded[key] for key in self.channel_compos]
         bbox_pred = tf.concat(bbox_pred, axis=-1)
@@ -43,29 +43,13 @@ class FeatureDecoder:
         assert bbox_pred.shape == feature.shape
         return tf.cast(bbox_pred, dtype=tf.float32)
 
-    def decode_yx(self, yx_raw):
+    def decode_yx(self, yx_raw, box_2d):
         """
         :param yx_raw: (batch, grid_h, grid_w, anchor, 2)
         :return: yx_dec = yx coordinates of box centers in ratio to image (batch, grid_h, grid_w, anchor, 2)
         """
-        grid_h, grid_w = yx_raw.shape[1:3]
-        """
-        Original yolo v3 implementation: yx_dec = tf.sigmoid(yx_raw)
-        For yx_dec to be close to 0 or 1, yx_raw should be -+ infinity
-        By expanding activation range -0.2 ~ 1.4, yx_dec can be close to 0 or 1 from moderate values of yx_raw 
-        """
-        # grid_x: (grid_h, grid_w)
-        grid_x, grid_y = tf.meshgrid(tf.range(grid_w), tf.range(grid_h))
-        # grid: (grid_h, grid_w, 2)
-        grid = tf.stack([grid_y, grid_x], axis=-1)
-        grid = tf.reshape(grid, (1, grid_h, grid_w, 1, 2))
-        grid = tf.cast(grid, tf.float32)
-        divider = tf.reshape([grid_h, grid_w], (1, 1, 1, 1, 2))
-        divider = tf.cast(divider, tf.float32)
-
-        yx_box = tf.sigmoid(yx_raw) * 1.4 - 0.2
-        # [(batch, grid_h, grid_w, anchor, 2) + (1, grid_h, grid_w, 1, 2)] / (1, 1, 1, 1, 2)
-        yx_dec = (yx_box + grid) / divider
+        yx_box = tf.tanh(yx_raw)
+        yx_dec = box_2d[..., :2] + (yx_box * box_2d[..., 2:4])
         return yx_dec
 
     def decode_hwl(self, hwl_raw, anchors_ratio):
@@ -82,4 +66,12 @@ class FeatureDecoder:
         # hw_dec = self.const_3 * tf.sigmoid(hw_raw - self.const_log_2) * anchors_tf
         hwl_dec = tf.exp(hwl_raw) * anchors_tf
         return hwl_dec
+
+    def inv_proj(self, box_yx, depth, intrinsic):
+        box_y = -depth * ((box_yx[..., :1] - intrinsic[:, tf.newaxis, tf.newaxis, 1:2, 2:3]) /
+                          intrinsic[:, tf.newaxis, tf.newaxis, 1:2, 1:2])
+        box_x = -depth * ((box_yx[..., 1:2] - intrinsic[:, tf.newaxis, tf.newaxis, :1, 2:3]) /
+                          intrinsic[:, tf.newaxis, tf.newaxis, :1, :1])
+        box_3d_yx = tf.concat([box_y, box_x], axis=-1)
+        return box_3d_yx
 

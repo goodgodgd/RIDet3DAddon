@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 
-import utils.util_function as uf
+import utils.tflow.util_function as uf
 
 
 class LossBase:
@@ -166,18 +166,20 @@ class Box3DLoss(LossBase):
         object_mask = tf.cast(grtr["object"][scale] == 1, dtype=tf.float32)
         pred = self.box_preprocess(grtr, pred, scale)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        box_3d_loss = huber_loss(grtr["yxhwl"][scale], pred["yxhwl"][scale]) * object_mask
+        box_3d_loss = huber_loss(grtr["yxhwl"][scale], pred["yxhwl"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(box_3d_loss)
         return scalar_loss, box_3d_loss
 
     def box_preprocess(self, grtr, pred, scale):
         # TODO gt logit
         yxh = pred["yxhwl"][scale][..., :3]
-        w = pred["yxhwl"][scale][..., 3:4]
-        l = pred["yxhwl"][scale][..., 4:5]
-        yxhlw = tf.concat([yxh, l, w], axis=-1)
-        M = tf.abs(pred["theta"][scale] - grtr["theta"][scale]) < (np.pi / 4)
-        pred["yxhwl"][scale][..., 3:5] = M * pred["yxhwl"][scale][..., 3:5] + (1 - M) * yxhlw[..., 3:5]
+        wl = pred["yxhwl"][scale][..., 3:5]
+        # l = pred["yxhwl"][scale][..., 4:5]
+        # yxhlw = tf.concat([yxh, l, w], axis=-1)
+        M = tf.cast(tf.abs(pred["theta"][scale] - grtr["theta"][scale]) < (np.pi / 4), dtype=tf.float32)
+        # yxh = pred["yxhwl"][scale][..., :3]
+        wl = M * pred["yxhwl"][scale][..., 3:5] + (1 - M) * wl
+        pred["yxhwl"][scale] = tf.concat([yxh, wl], axis=-1)
         return pred
 
 
@@ -188,7 +190,7 @@ class ThetaLoss(LossBase):
 
     def __call__(self, grtr, pred, auxi, scale):
         object_mask = tf.cast(grtr["object"][scale] == 1, dtype=tf.float32)
-        c_theta = tf.math.cos(grtr["theta"][scale] - pred["theta"][scale]) * 4
-        theta_loss = 2 - (1/(2*self.beta) * tf.math.log((self.alpha+c_theta)/(self.alpha-c_theta))) * object_mask[..., 0]
+        c_theta = tf.math.cos(4*(grtr["theta"][scale] - pred["theta"][scale]))
+        theta_loss = (2 - (1/(2*self.beta) * tf.math.log((self.alpha+c_theta)/(self.alpha-c_theta)))) * object_mask
         scalar_loss = tf.reduce_sum(theta_loss)
         return scalar_loss, theta_loss

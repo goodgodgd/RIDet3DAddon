@@ -9,15 +9,14 @@ import shutil
 from timeit import default_timer as timer
 
 import utils.util_class as uc
-import utils.util_function as uf
-from dataloader.example_maker import ExampleMaker
-import dataloader.data_util as tu
-import config as cfg
+import utils.framework.util_function as uf
+from RIDet3DAddon.tflow.dataloader.example_maker import ExampleMaker
+import dataloader.framework.data_util as tu
 
 
 def drive_manager_factory(dataset_name, split, srcpath):
     if dataset_name == "kitti":
-        from dataloader.readers.kitti_reader import KittiDriveManager
+        from RIDet3DAddon.tflow.dataloader.readers.kitti_reader import KittiDriveManager
         return KittiDriveManager(srcpath, split)
     else:
         assert 0, f"[drive_manager_factory] invalid dataset name: {dataset_name}"
@@ -25,7 +24,7 @@ def drive_manager_factory(dataset_name, split, srcpath):
 
 def drive_reader_factory(dataset_name, dataset_cfg, split, drive_path):
     if dataset_name == "kitti":
-        from dataloader.readers.kitti_reader import KittiReader
+        from RIDet3DAddon.tflow.dataloader.readers.kitti_reader import KittiReader
         return KittiReader(drive_path, split, dataset_cfg)
     else:
         assert 0, f"[drive_reader_factory] invalid dataset name: {dataset_name}"
@@ -39,8 +38,7 @@ class TfrecordMaker:
     """
     def __init__(self, dataset_cfg, split, tfrpath, shard_size,
                  drive_example_limit=0,
-                 total_example_limit=0,
-                 anchors_pixel=cfg.Dataloader.ANCHORS_PIXEL):
+                 total_example_limit=0):
         self.dataset_cfg = dataset_cfg
         self.split = split                  # split name e.g. "train", "val", "test
         self.tfrpath__ = tfrpath + "__"     # temporary path to write dataloader

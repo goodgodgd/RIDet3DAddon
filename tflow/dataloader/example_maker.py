@@ -1,9 +1,9 @@
 import numpy as np
 import cv2
 
-import dataloader.data_util as tu
-import dataloader.preprocess as pr
-import config as cfg
+import RIDet3DAddon.tflow.dataloader.data_util as tu
+import RIDet3DAddon.tflow.dataloader.preprocess as pr
+import RIDet3DAddon.config as cfg
 
 
 class ExampleMaker:
@@ -28,6 +28,7 @@ class ExampleMaker:
         example = dict()
         example["image"] = self.data_reader.get_image(index)
         example["depth"] = self.data_reader.get_depth(index)
+        example["intrinsic"] = self.data_reader.get_intrinsic(index)
         raw_hw_shape = example["image"].shape[:2]
         bboxes2d, bboxes3d, categories = self.data_reader.get_bboxes(index, raw_hw_shape)
         example["bboxes2d"], example["bboxes3d"], example["dontcare"] = self.merge_box_and_category(bboxes2d, bboxes3d, categories)

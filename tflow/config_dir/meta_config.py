@@ -1,5 +1,5 @@
 import os.path as op
-import config_dir.parameter_pool as params
+import RIDet3DAddon.tflow.config_dir.parameter_pool as params
 import numpy as np
 
 
@@ -7,8 +7,8 @@ class Paths:
     RESULT_ROOT = "/home/eagle/mun_workspace"
     DATAPATH = op.join(RESULT_ROOT, "tfrecord")
     CHECK_POINT = op.join(RESULT_ROOT, "ckpt")
-    CONFIG_FILENAME = '/home/eagle/mun_workspace/Detector/PaperDetector/config.py'
-    META_CFG_FILENAME = '/home/eagle/mun_workspace/Detector/PaperDetector/config_dir/meta_config.py'
+    CONFIG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector/RIDet3DAddon/config.py'
+    META_CFG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector/RIDet3DAddon/tflow/config_dir/meta_config.py'
 
 
 class Datasets:
@@ -90,8 +90,8 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "04-04-effi_test"
-    MODE = ["eager", "graph", "distribute"][0]
+    CKPT_NAME = "3D_test"
+    MODE = ["eager", "graph", "distribute"][1]
     DATA_BATCH_SIZE = 2
     BATCH_SIZE = DATA_BATCH_SIZE * 2
     GLOBAL_BATCH = BATCH_SIZE
@@ -105,6 +105,7 @@ class Train:
     LOG_KEYS = ["pred_score"]
     USE_EMA = [True, False][1]
     EMA_DECAY = 0.9998
+    INTRINSIC = np.zeros([3, 4])
 
 
 class Scheduler:
@@ -118,8 +119,7 @@ class FeatureDistribPolicy:
     POLICY_NAME = ["SinglePositivePolicy", "MultiPositivePolicy", "OTAPolicy"][2]
     IOU_THRESH = [0.5, 0.3]
     CENTER_RADIUS = [2.5, 2.5]
-    # [Small Max, Medium Max]
-    BOX_SIZE_STANDARD = np.array([128, 256])
+
 
 class AnchorGeneration:
     ANCHOR_STYLE = "YoloxAnchor"
