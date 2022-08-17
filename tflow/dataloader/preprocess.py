@@ -20,7 +20,6 @@ class ExamplePreprocess(PreprocessBase):
                            # ExampleDepthLimiter(max_depth, min_depth),
                            ExampleBoxScaler(),          # box in (0~1) scale
                            ExampleZeroPadBbox(max_bbox),
-                           ExampleZeroPadDontCare(max_dontcare),
                            ]
 
     def __call__(self, example):
@@ -45,7 +44,7 @@ class ExampleCropper(PreprocessBase):
         crop_tlbr = self.find_crop_range(source_hw)
         example["image"] = self.crop_image(example["image"], crop_tlbr)
         cropped_hw = example["image"].shape[:2]
-        example["bboxes2d"] = self.crop_bboxes(example["bboxes2d"], crop_tlbr, cropped_hw)
+        example["inst2d"] = self.crop_bboxes(example["inst2d"], crop_tlbr, cropped_hw)
         return example
 
     def find_crop_range(self, src_hw):                      # example:
@@ -105,14 +104,14 @@ class ExampleResizer(PreprocessBase):
         resize_ratio_w = self.target_hw[1] / source_hw[1]
         # resize image
         image = cv2.resize(example["image"], (self.target_hw[1].astype(np.int32), self.target_hw[0].astype(np.int32)))
-        bboxes = example["bboxes2d"].astype(np.float32)
+        bboxes = example["inst2d"].astype(np.float32)
         # rescale yxhw
         bboxes[:, 0] *= resize_ratio_h
         bboxes[:, 1] *= resize_ratio_w
         bboxes[:, 2] *= resize_ratio_h
         bboxes[:, 3] *= resize_ratio_w
         example["image"] = image
-        example["bboxes2d"] = bboxes
+        example["inst2d"] = bboxes
         return example
 
 
@@ -135,13 +134,14 @@ class ExampleBoxScaler(PreprocessBase):
     """
     def __call__(self, example):
         height, width = example["image"].shape[:2]
-        bboxes = example["bboxes2d"].astype(np.float32)
+        bboxes = example["inst2d"].astype(np.float32)
         bboxes[:, :4] /= np.array([height, width, height, width])
-        example["bboxes2d"] = bboxes
+        example["inst2d"] = bboxes
 
-        dc_boxes = example["dontcare"].astype(np.float32)
-        dc_boxes[:, :4] /= np.array([height, width, height, width])
-        example["dontcare"] = dc_boxes
+        if "dontcare" in example.keys():
+            dc_boxes = example["dontcare"].astype(np.float32)
+            dc_boxes[:, :4] /= np.array([height, width, height, width])
+            example["dontcare"] = dc_boxes
         return example
 
 
@@ -181,17 +181,17 @@ class ExampleZeroPadBbox(PreprocessBase):
         self.max_bbox = max_bbox
 
     def __call__(self, example):
-        bboxes = example["bboxes2d"]
+        bboxes = example["inst2d"]
         if bboxes.shape[0] < self.max_bbox:
             new_bboxes = np.zeros((self.max_bbox, bboxes.shape[1]), dtype=np.float32)
             new_bboxes[:bboxes.shape[0]] = bboxes
-            example["bboxes2d"] = new_bboxes
+            example["inst2d"] = new_bboxes
 
-        bboxes = example["bboxes3d"]
+        bboxes = example["inst3d"]
         if bboxes.shape[0] < self.max_bbox:
             new_bboxes = np.zeros((self.max_bbox, bboxes.shape[1]), dtype=np.float32)
             new_bboxes[:bboxes.shape[0]] = bboxes
-            example["bboxes3d"] = new_bboxes
+            example["inst3d"] = new_bboxes
         return example
 
 

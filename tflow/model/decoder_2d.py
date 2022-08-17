@@ -1,9 +1,8 @@
 import tensorflow as tf
 
-import utils.tflow.util_function as uf
 import RIDet3DAddon.config as cfg3d
 import RIDet3DAddon.tflow.config_dir.util_config as uc
-import RIDet3DAddon.tflow.model.model_util as mu
+import model.tflow.model_util as mu
 
 
 class FeatureDecoder:
@@ -13,36 +12,39 @@ class FeatureDecoder:
         :param anchors_per_scale: anchor box sizes in ratio per scale
         """
         self.anchors_per_scale = anchors_per_scale
-        self.const_3 = tf.constant(3, dtype=tf.float32)
-        self.const_log_2 = tf.math.log(tf.constant(2, dtype=tf.float32))
+        self.num_scale = len(cfg3d.ModelOutput.FEATURE_SCALES)
+        self.margin = cfg3d.Architecture.SIGMOID_DELTA
         self.channel_compos = channel_compos
-        self.sigmwm = mu.SigmWM()
 
-    def __call__(self, feature, scale_ind):
-        """
-        :param feature: raw feature map predicted by model (batch, grid_h, grid_w, anchor, channel)
-        :param scale_ind: scale name e.g. 0~2
-        :return: decoded feature in the same shape e.g. (yxhw, objectness, category probabilities)
-        """
-        slices = uf.slice_feature(feature, self.channel_compos)
-        anchors_ratio = self.anchors_per_scale[scale_ind]
+    def decode(self, feature):
+        decoded = {key: [] for key in feature.keys()}
+        for scale_index in range(self.num_scale):
+            anchors_ratio = self.anchors_per_scale[scale_index]
+            box_yx = self.decode_yx(feature["yxhw"][scale_index][..., :2])
+            box_hw = self.decode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio)
+            decoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
+            decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
+            if cfg3d.ModelOutput.IOU_AWARE:
+                decoded["ioup"].append(tf.sigmoid(feature["ioup"][scale_index]))
+                decoded["object"].append(self.obj_post_process(tf.sigmoid(feature["object"][scale_index]),
+                                                               decoded["ioup"][scale_index]))
+            else:
+                decoded["object"].append(tf.sigmoid(feature["object"][scale_index]))
+            bbox_pred = [decoded[key][scale_index] for key in self.channel_compos]
+            decoded["merged"].append(tf.concat(bbox_pred, axis=-1))
+            assert decoded["merged"][scale_index].shape == feature["merged"][scale_index].shape
+        return decoded
 
-        decoded = dict()
-        box_yx = self.decode_yx(slices["yxhw"][..., :2])
-        box_hw = self.decode_hw(slices["yxhw"][..., 2:], anchors_ratio)
-        decoded["yxhw"] = tf.concat([box_yx, box_hw], axis=-1)
-        decoded["category"] = tf.nn.softmax(slices["category"])
-        if cfg3d.ModelOutput.IOU_AWARE:
-            decoded["ioup"] = tf.sigmoid(slices["ioup"])
-            decoded["object"] = self.obj_post_process(tf.sigmoid(slices["object"]), decoded["ioup"])
-        else:
-            decoded["object"] = tf.sigmoid(slices["object"])
-
-        bbox_pred = [decoded[key] for key in self.channel_compos]
-        bbox_pred = tf.concat(bbox_pred, axis=-1)
-
-        assert bbox_pred.shape == feature.shape
-        return tf.cast(bbox_pred, dtype=tf.float32)
+    def inverse(self, feature):
+        encoded = {key: [] for key in feature.keys()}
+        for scale_index in range(self.num_scale):
+            valid_mask = tf.cast(feature["yxhw"][scale_index][..., :1], dtype=tf.float32)
+            anchors_ratio = self.anchors_per_scale[scale_index]
+            box_yx = self.encode_yx(feature["yxhw"][scale_index][..., :2], valid_mask)
+            box_hw = self.encode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio, valid_mask)
+            encoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
+            assert encoded["yxhw"][scale_index].shape == feature["yxhw"][scale_index].shape
+        return encoded
 
     def obj_post_process(self, obj, ioup):
         iou_aware_factor = 0.4
@@ -70,7 +72,7 @@ class FeatureDecoder:
         divider = tf.cast(divider, tf.float32)
 
         # yx_box = tf.sigmoid(yx_raw) * 1.4 - 0.2
-        yx_box = self.sigmwm(yx_raw, 0.2)
+        yx_box = mu.sigmoid_with_margin(yx_raw, self.margin)
         # [(batch, grid_h, grid_w, anchor, 2) + (1, grid_h, grid_w, 1, 2)] / (1, 1, 1, 1, 2)
         yx_dec = (yx_box + grid) / divider
         return yx_dec
@@ -90,3 +92,30 @@ class FeatureDecoder:
         hw_dec = tf.exp(hw_raw) * anchors_tf
         return hw_dec
 
+    def encode_yx(self, decode_yx, valid_mask):
+        """
+        :param decode_yx: (batch, grid_h, grid_w, anchor, 2)
+        :return: yx_raw = yx logit (batch, grid_h, grid_w, anchor, 2)
+        """
+
+        grid_h, grid_w = decode_yx.shape[1:3]
+        # grid_x: (grid_h, grid_w)
+        grid_x, grid_y = tf.meshgrid(tf.range(grid_w), tf.range(grid_h))
+        # grid: (grid_h, grid_w, 2)
+        grid = tf.stack([grid_y, grid_x], axis=-1)
+        grid = tf.reshape(grid, (1, grid_h, grid_w, 1, 2))
+        grid = tf.cast(grid, tf.float32)
+        divider = tf.reshape([grid_h, grid_w], (1, 1, 1, 1, 2))
+        divider = tf.cast(divider, tf.float32)
+        # yx_dec = (yx_box + grid) / divider
+        yx_box = (decode_yx * divider - grid)
+        yx_box *= valid_mask
+        yx_raw = mu.inv_sigmoid_with_margin(yx_box, self.margin)
+        return yx_raw
+
+    def encode_hw(self, decode_hw, anchors_ratio, valid_mask):
+        num_anc, channel = anchors_ratio.shape  # (3, 2)
+        anchors_tf = tf.reshape(anchors_ratio, (1, 1, 1, num_anc, channel))
+        hw_raw = tf.math.log(decode_hw / anchors_tf)
+        hw_raw = tf.math.multiply_no_nan(hw_raw, valid_mask)
+        return hw_raw

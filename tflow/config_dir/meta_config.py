@@ -16,14 +16,14 @@ class Datasets:
     class Kitti:
         NAME = "kitti"
         PATH = "/home/eagle/mun_workspace/kitti"
-        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist", "DontCare"]
+        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist"]
         CATEGORY_REMAP = {}
         # (4,13) * 64
         INPUT_RESOLUTION = (320, 1024)
         MAX_DEPTH = 50
         MIN_DEPTH = 0.01
 
-    DATASET_CONFIGS = None
+    DATASET_CONFIG = None
     TARGET_DATASET = "kitti"
 
 
@@ -48,7 +48,7 @@ class ModelOutput:
     # MAIN -> FMAP, NMS -> INST
     GRTR_MAIN_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
     PRED_MAIN_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE)
-    GRTR_3D_MAIN_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "object": 1, "category": 1}
+    GRTR_3D_MAIN_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
     PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE)
     PRED_HEAD_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE, True)
     PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE, True)
@@ -56,8 +56,8 @@ class ModelOutput:
     GRTR_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
     PRED_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
-    GRTR_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "object": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    GRTR_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
+    PRED_3D_NMS_COMPOSITION = {"yxhw": 4, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
@@ -72,6 +72,7 @@ class Architecture:
     HEAD_CONV_ARGS = {"activation": "leaky_relu", "scope": "head"}
     USE_SPP = [True, False][1]
     COORD_CONV = [True, False][1]
+    SIGMOID_DELTA = 0.2
 
     class Resnet:
         LAYER = {50: ('BottleneckBlock', (3, 4, 6, 3)),
@@ -116,9 +117,10 @@ class Scheduler:
 
 
 class FeatureDistribPolicy:
-    POLICY_NAME = ["SinglePositivePolicy", "MultiPositivePolicy", "OTAPolicy"][2]
+    POLICY_NAME = ["SinglePositivePolicy", "FasterRCNNPolicy", "MultiPositivePolicy"][2]
     IOU_THRESH = [0.5, 0.3]
     CENTER_RADIUS = [2.5, 2.5]
+    MULTI_POSITIVE_WIEGHT = 0.8
 
 
 class AnchorGeneration:
@@ -137,7 +139,7 @@ class AnchorGeneration:
         SCALES = [2 ** x for x in [0, 1 / 3, 2 / 3]]
 
     class YoloxAnchor:
-        BASE_ANCHOR = [0, 0]
+        BASE_ANCHOR = [8, 8]
         ASPECT_RATIO = [1]
         SCALES = [1]
 

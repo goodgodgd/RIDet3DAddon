@@ -9,11 +9,11 @@ from log.logger_pool import LogMeanDetailLoss, LogPositiveDetailObj, LogNegative
 
 
 class ExhaustiveLog:
-    def __init__(self):
-        self.columns = cfg.Log.LOSS_NAME + cfg.Log.ExhaustiveLog.DETAIL
+    def __init__(self, loss_names):
+        self.columns = loss_names + cfg.Log.ExhaustiveLog.DETAIL
         self.loggers = self.create_loggers(self.columns)
         self.num_anchors = cfg.ModelOutput.NUM_ANCHORS_PER_SCALE * len(cfg.ModelOutput.FEATURE_SCALES)
-        self.num_categs = cfg.ModelOutput.PRED_MAIN_COMPOSITION["category"]
+        self.num_categs = cfg.ModelOutput.PRED_FMAP_COMPOSITION["category"]
         self.data = pd.DataFrame()
         self.metric_data = pd.DataFrame()
         self.ctgr_anchor_data = pd.DataFrame()

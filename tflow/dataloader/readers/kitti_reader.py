@@ -4,7 +4,7 @@ from glob import glob
 import cv2
 
 from dataloader.readers.reader_base import DatasetReaderBase, DriveManagerBase
-import dataloader.tflow.data_util as tu
+import dataloader.data_util as tu
 import utils.util_class as uc
 
 
@@ -106,7 +106,7 @@ class KittiReader(DatasetReaderBase):
         z = raw_label[13]
         theta = raw_label[14]
         bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d, x3d, z, h, w, l, theta, 1], dtype=np.float32)
+        bbox_3d = np.array([y3d, x3d, h, w, l, z, theta], dtype=np.float32)
         return bbox_2d, bbox_3d, category_name
 
     def load_calib_data(self, file):

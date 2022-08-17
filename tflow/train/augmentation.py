@@ -39,7 +39,8 @@ class TotalAugment:
         total_image = []
         total_bboxes = []
         total_dontcare = []
-        for i in range(cfg.Train.DATA_BATCH_SIZE):
+        batch_size = features["image"].shape[0]
+        for i in range(batch_size):
             image = features["image"][i].numpy()
             bboxes = features["bboxes"][i]
             dontbboxes = features["dontcare"][i]

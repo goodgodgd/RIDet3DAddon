@@ -95,10 +95,10 @@ def line_structure(line, f, space_count=0, data=""):
 def set_dataset_and_get_config(dataset):
     meta.Datasets.TARGET_DATASET = dataset
     dataset_cfg = getattr(meta.Datasets, dataset.capitalize())  # e.g. meta.Datasets.Kitti
-    meta.Datasets.DATASET_CONFIGS = dataset_cfg
-    print(meta.Datasets.DATASET_CONFIGS)
+    meta.Datasets.DATASET_CONFIG = dataset_cfg
+    print(meta.Datasets.DATASET_CONFIG)
 
-    return meta.Datasets.DATASET_CONFIGS
+    return meta.Datasets.DATASET_CONFIG
 
 
 def set_anchors():

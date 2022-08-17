@@ -24,7 +24,7 @@ class TrainValBase:
         self.feature_creator = feature_creator
 
     def run_epoch(self, dataset, scheduler, epoch=0, visual_log=False, exhaustive_log=False, val_only=False):
-        logger = Logger(visual_log, exhaustive_log, self.ckpt_path, epoch, self.is_train, val_only)
+        logger = Logger(visual_log, exhaustive_log, self.loss_object.loss_names, self.ckpt_path, epoch, self.is_train, val_only)
         epoch_start = timer()
         for step, features in enumerate(dataset):
             start = timer()
@@ -64,25 +64,17 @@ class ModelTrainer(TrainValBase):
                          ckpt_path)
 
     def run_batch(self, features):
+        features["image"] = tf.concat([features["image"], features["depth"]], axis=-1)
         if self.augmenter:
             features = self.augmenter(features)
-        for i in range(features["image"].shape[0]):
-            feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            feat_2d_map, feat_3d_map, feat_2d_logit, feat_3d_logit = \
-                self.feature_creator.create(features["bboxes2d"][i].numpy(), features["bboxes3d"][i].numpy(), feat_sizes)
-            features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
-            features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
-            features["feat2d_logit"] = tu.create_batch_featmap(features, feat_2d_logit, "2d_logit")
-            features["feat3d_logit"] = tu.create_batch_featmap(features, feat_3d_logit, "3d_logit")
-        features = tu.gt_feat_rename(features)
+
+        features = self.feature_creator(features)
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
-        rgbd = tf.concat([features["image"], features["depth"]], axis=-1)
-        input_data = {"image": rgbd, "intrinsic": features["intrinsic"]}
         with tf.GradientTape() as tape:
-            prediction = self.model(input_data, training=True)
+            prediction = self.model(features, training=True)
             total_loss, loss_by_type = self.loss_object(features, prediction)
 
         grads = tape.gradient(total_loss, self.model.trainable_weights)
@@ -197,8 +189,8 @@ class ModelValidater(TrainValBase):
     def run_batch(self, features):
         for i in range(features["image"].shape[0]):
             feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            feat_2d_map, feat_3d_map = self.feature_creator.create(features["bboxes2d"][i].numpy(),
-                                                                   features["bboxes3d"][i].numpy(), feat_sizes)
+            feat_2d_map, feat_3d_map = self.feature_creator.create(features["box2d"][i].numpy(),
+                                                                   features["box3d"][i].numpy(), feat_sizes)
             features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
             features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
         features = tu.gt_feat_rename(features)

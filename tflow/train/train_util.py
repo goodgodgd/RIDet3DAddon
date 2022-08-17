@@ -15,15 +15,21 @@ else:
 def gt_feat_rename(features):
     new_feat = {(f"inst{key[-2:]}" if "bboxes" in key else key): list() for key in features.keys()}
     for key, val in features.items():
+        if isinstance(features[key], list):
+            pass
+        else:
+            new_feat[key] = features[key]
+
+
         if "feat_lane" in key:
             new_feat[key] = val
         elif "feat2d" in key:
             new_feat[key].extend(val)
         elif "feat3d" in key:
             new_feat[key].extend(val)
-        elif "bboxes2d" in key:
+        elif "inst2d" in key:
             new_feat["inst2d"].extend(val)
-        elif "bboxes3d" in key:
+        elif "inst2d" in key:
             new_feat["inst3d"].extend(val)
         elif "image" in key:
             new_feat[key] = val

@@ -37,7 +37,7 @@ def train_by_plan(dataset_name, end_epoch, learning_rate, loss_weights, lr_hold)
 
     model, loss_object, optimizer = create_training_parts(batch_size, imshape, anchors_per_scale, ckpt_path,
                                                           learning_rate, loss_weights, valid_category)
-    feature_creator = FeatureMapDistributer(cfg3d.FeatureDistribPolicy.POLICY_NAME, anchors_per_scale)
+    feature_creator = FeatureMapDistributer(cfg3d.FeatureDistribPolicy.POLICY_NAME, imshape, anchors_per_scale)
     lrs = ts.Scheduler(learning_rate, cfg3d.Scheduler.CYCLE_STEPS, train_steps, ckpt_path,
                        warmup_epoch=cfg3d.Scheduler.WARMUP_EPOCH)
 
@@ -46,7 +46,7 @@ def train_by_plan(dataset_name, end_epoch, learning_rate, loss_weights, lr_hold)
     validater = tv.ModelValidater(model, loss_object, val_steps, feature_creator, anchors_per_scale, ckpt_path)
 
     for epoch in range(start_epoch, end_epoch):
-        # dataset_train.shuffle(buffer_size=200)
+        dataset_train.shuffle(buffer_size=200)
         lrs.set_scheduler(lr_hold, epoch)
         print(f"========== Start dataset : {dataset_name} epoch: {epoch + 1}/{end_epoch} ==========")
         detail_log = (epoch in cfg3d.Train.DETAIL_LOG_EPOCHS)
@@ -112,10 +112,7 @@ def get_dataset(data_path, dataset_name, shuffle, batch_size, split, anchors):
         input_shape[-1] += dataset_cfg["depth"]["shape"][-1]
 
     # anchor sizes per scale in pixel
-    if not anchors.all():
-        anchors_per_scale = np.array([[[1, 1]], [[1, 1]], [[1, 1]]], dtype=np.float32)
-    else:
-        anchors_per_scale = np.array([anchor / np.array([input_shape[:2]]) for anchor in anchors], dtype=np.float32)
+    anchors_per_scale = np.array([anchor / np.array([input_shape[:2]]) for anchor in anchors], dtype=np.float32)
     print(f"[get_dataset] dataset={dataset_name}, image shape={input_shape}, "
           f"frames={frames},\n\tanchors={anchors_per_scale}")
     return dataset, frames // batch_size, input_shape, anchors_per_scale

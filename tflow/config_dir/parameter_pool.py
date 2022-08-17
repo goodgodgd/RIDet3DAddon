@@ -1,9 +1,9 @@
 class LossComb:
-    STANDARD = {"bboxes_2d": {"iou": ([1., 1., 1.], "IouLoss", True),
-                              "object_2d": ([1., 1., 1.], "BoxObjectnessLoss", 1, 1),
-                              "category_2d": ([1., 1., 1.], "MajorCategoryLoss")},
-                "bboxes_3d": {"category_3d": ([1., 1., 1.], "MajorCategoryLoss"),
-                              "box_3d": ([1., 1., 1.], "Box3DLoss"), "theta": ([1., 1., 1.], "ThetaLoss", 1.1, 1.5)}}
+    STANDARD = {"iou": ([1., 1., 1.], "IoUL1smooth"),
+                "object_2d": ([1., 1., 1.], "BoxObjectnessLoss", 1, 1),
+                "category_2d": ([1., 1., 1.], "MajorCategoryLoss", "2d"),
+                "category_3d": ([1., 1., 1.], "MajorCategoryLoss", "3d"),
+                "box_3d": ([1., 1., 1.], "Box3DLoss"), "theta": ([1., 1., 1.], "ThetaLoss", 1.1, 1.5)}
 
 
 class TrainingPlan:
@@ -46,7 +46,7 @@ class TrainParams:
     @classmethod
     def get_3d_pred_composition(cls, iou_aware, categorized=False):
         cls_composition = {"category": len(TfrParams.CATEGORY_NAMES["category"])}
-        reg_composition = {"yxhwl": 5, "z": 1, "theta": 1, "object": 1}
+        reg_composition = {"yxhwl": 5, "z": 1, "theta": 1}
         if iou_aware:
             reg_composition["ioup"] = 1
         composition = {"reg": reg_composition, "cls": cls_composition}

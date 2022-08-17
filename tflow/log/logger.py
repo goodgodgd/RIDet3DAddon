@@ -3,20 +3,19 @@ import os.path as op
 import pandas as pd
 import os
 
-from log.exhaustive_log import ExhaustiveLog
-from log.history_log import HistoryLog
+from RIDet3DAddon.tflow.log.exhaustive_log import ExhaustiveLog
+from RIDet3DAddon.tflow.log.history_log import HistoryLog
 from log.visual_log import VisualLog
 import utils.tflow.util_function as uf
-import RIDet3DAddon.tflow.utils.util_function as uf3d
 import RIDet3DAddon.tflow.model.model_util as mu
 import config as cfg
 import RIDet3DAddon.tflow.config_dir.util_config as uc
 
 
 class Logger:
-    def __init__(self, visual_log, exhaustive_log, ckpt_path, epoch, is_train, val_only):
-        self.history_logger = HistoryLog()
-        self.exhaustive_logger = ExhaustiveLog() if exhaustive_log else None
+    def __init__(self, visual_log, exhaustive_log, loss_names, ckpt_path, epoch, is_train, val_only):
+        self.history_logger = HistoryLog(loss_names)
+        self.exhaustive_logger = ExhaustiveLog(loss_names) if exhaustive_log else None
         self.visual_logger = VisualLog(ckpt_path, epoch) if visual_log else None
         self.history_filename = op.join(ckpt_path, "history.csv")
         self.exhaust_path = op.join(ckpt_path, "exhaust_log")
@@ -33,52 +32,46 @@ class Logger:
         self.check_nan(grtr, "grtr")
         self.check_nan(pred, "pred")
         self.check_nan(loss_by_type, "loss")
-        grtr_slices = uf3d.merge_and_slice_features(grtr, True)
-        pred_slices = uf3d.merge_and_slice_features(pred, False)
-        nms_boxes = self.nms(pred_slices["feat2d"])
-        pred_slices["inst"]["bboxes2d"] = uf.slice_feature(nms_boxes, uc.get_bbox_composition(False))
-        nms_boxes = self.nms(pred_slices["feat3d"])
-        pred_slices["inst"]["bboxes3d"] = uf.slice_feature(nms_boxes, uc.get_3d_bbox_composition(False))
+        nms_2d_box, nms_3d_box = self.nms(pred)
+        pred["inst2d"] = uf.slice_feature(nms_2d_box, uc.get_bbox_composition(False))
+        pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
 
-        for key, feature_slices in grtr_slices.items():
-            grtr_slices[key] = uf.convert_tensor_to_numpy(feature_slices)
-        for key, feature_slices in pred_slices.items():
-            pred_slices[key] = uf.convert_tensor_to_numpy(feature_slices)
+        for key, feature_slices in grtr.items():
+            grtr[key] = uf.convert_tensor_to_numpy(feature_slices)
+        for key, feature_slices in pred.items():
+            pred[key] = uf.convert_tensor_to_numpy(feature_slices)
         loss_by_type = uf.convert_tensor_to_numpy(loss_by_type)
 
         if step == 0 and self.epoch == 0:
-            structures = {"grtr": grtr_slices, "pred": pred_slices, "loss": loss_by_type}
+            structures = {"grtr": grtr, "pred": pred, "loss": loss_by_type}
             self.save_model_structure(structures)
 
-        self.history_logger(step, grtr_slices, pred_slices, loss_by_type, total_loss)
+        self.history_logger(step, grtr, pred, loss_by_type, total_loss)
+        # TODO
         if self.exhaustive_logger:
-            self.exhaustive_logger(step, grtr_slices, pred_slices, loss_by_type, total_loss)
+            self.exhaustive_logger(step, grtr, pred, loss_by_type, total_loss)
+        # TODO draw 3d box 매칭되면 파란색, 매칭되지 않으면 빨간색의 6면
         if self.visual_logger:
-            self.visual_logger(step, grtr_slices, pred_slices)
+            self.visual_logger(step, grtr, pred)
 
     def check_nan(self, features, feat_name):
         valid_result = True
-        for name, value in features.items():
-            if isinstance(value, dict):
-                for sub_name, tensor in value.items():
-                    if not np.isfinite(tensor.numpy()).all():
-                        print(f"nan {feat_name}:", sub_name, np.quantile(tensor.numpy(), np.linspace(0, 1, self.num_channel)))
-                        valid_result = False
-            elif isinstance(value, list):
-                for idx, tensor in enumerate(value):
-                    if tensor.ndim == 0 and (np.isnan(tensor) or np.isinf(tensor) or tensor > 100000000):
-                        print(f"nan loss: {name}, {value}")
-                        valid_result = False
-                    elif not np.isfinite(tensor.numpy()).all():
-                        print(f"nan {feat_name}: {idx} feat", np.quantile(tensor.numpy(), np.linspace(0, 1, self.num_channel)))
-                        valid_result = False
-            else:
-                if value.ndim == 0 and (np.isnan(value) or np.isinf(value) or value > 100000000):
-                    print(f"nan loss: {name}, {value}")
-                    valid_result = False
-                elif not np.isfinite(value.numpy()).all():
-                    print(f"nan {feat_name}:", name, np.quantile(value.numpy(), np.linspace(0, 1, self.num_channel)))
-                    valid_result = False
+        if isinstance(features, dict):
+            for name, value in features.items():
+                self.check_nan(value, f"{feat_name}_{name}")
+        elif isinstance(features, list):
+            for idx, tensor in enumerate(features):
+                self.check_nan(tensor, f"{feat_name}_{idx}")
+        else:
+            if features.ndim == 0 and (np.isnan(features) or np.isinf(features) or features > 100000000):
+                print(f"nan loss: {feat_name}, {features}")
+                valid_result = False
+            elif not np.isfinite(features.numpy()).all():
+                a = features.numpy()
+                test = np.isnan(features.numpy())
+                aa = np.where(test == True)
+                print(f"nan {feat_name}:", np.quantile(features.numpy(), np.linspace(0, 1, self.num_channel)))
+                valid_result = False
         assert valid_result
 
     def finalize(self, start):

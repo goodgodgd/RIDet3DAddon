@@ -7,8 +7,8 @@ from log.logger_pool import LogMeanLoss, LogPositiveObj, LogNegativeObj
 
 
 class HistoryLog:
-    def __init__(self):
-        self.columns = cfg.Log.LOSS_NAME + cfg.Log.HistoryLog.SUMMARY
+    def __init__(self, loss_names):
+        self.columns = loss_names + cfg.Log.HistoryLog.SUMMARY
         self.loggers = self.create_loggers(self.columns)
         self.data = pd.DataFrame()
         self.summary = dict()
