@@ -3,10 +3,10 @@ import tensorflow as tf
 from timeit import default_timer as timer
 
 import config as cfg
-import utils.util_function as uf
-from train.train_util import mode_decor
-import train.train_util as tu
-from log.logger import Logger
+import utils.tflow.util_function as uf
+from RIDet3DAddon.tflow.train.train_util import mode_decor
+import RIDet3DAddon.tflow.train.train_util as tu
+from RIDet3DAddon.tflow.log.logger import Logger
 
 
 class TrainValBase:
@@ -24,7 +24,7 @@ class TrainValBase:
         self.feature_creator = feature_creator
 
     def run_epoch(self, dataset, scheduler, epoch=0, visual_log=False, exhaustive_log=False, val_only=False):
-        logger = Logger(visual_log, exhaustive_log, self.ckpt_path, epoch, self.is_train, val_only)
+        logger = Logger(visual_log, exhaustive_log, self.loss_object.loss_names, self.ckpt_path, epoch, self.is_train, val_only)
         epoch_start = timer()
         for step, features in enumerate(dataset):
             start = timer()
@@ -36,10 +36,12 @@ class TrainValBase:
             uf.print_progress(f"training {step}/{self.epoch_steps} steps, "
                               f"time={timer() - start:.3f}, "
                               f"total={total_loss:.3f}, "
-                              f"box={loss_by_type['iou']:.3f}, "
+                              f"box={loss_by_type['box_2d']:.3f}, "
                               f"object={loss_by_type['object']:.3f}, "
-                              f"distance={loss_by_type['distance']:.3f}, "
-                              f"category={loss_by_type['category']:.3f}, ")
+                              f"category={loss_by_type['category_2d']:.3f}, "
+                              f"box_3d={loss_by_type['box_3d']:.3f}, "
+                              f"theta={loss_by_type['theta']:.3f}, "
+                              f"category_3d={loss_by_type['category_3d']:.3f}, ")
 
             if step >= self.epoch_steps:
                 break
@@ -62,22 +64,17 @@ class ModelTrainer(TrainValBase):
                          ckpt_path)
 
     def run_batch(self, features):
+        features["image"] = tf.concat([features["image"], features["depth"]], axis=-1)
         if self.augmenter:
             features = self.augmenter(features)
-        for i in range(features["image"].shape[0]):
-            feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            feat_2d_map, feat_3d_map = self.feature_creator.create(features["bboxes2d"][i].numpy(),
-                                                                   features["bboxes3d"][i].numpy(), feat_sizes)
-            features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
-            features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
-        features = tu.gt_feat_rename(features)
 
+        features = self.feature_creator(features)
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
         with tf.GradientTape() as tape:
-            prediction = self.model(features["image"], training=True)
+            prediction = self.model(features, training=True)
             total_loss, loss_by_type = self.loss_object(features, prediction)
 
         grads = tape.gradient(total_loss, self.model.trainable_weights)
@@ -190,15 +187,15 @@ class ModelValidater(TrainValBase):
         self.is_train = False
 
     def run_batch(self, features):
-        for i in range(features["image"].shape[0]):
-            feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            featmap = self.feature_creator.create(features["bboxes"][i].numpy(), feat_sizes)
-            features["feat"] = tu.create_batch_featmap(features, featmap)
-        features = tu.gt_feat_rename(features)
+        features["image"] = tf.concat([features["image"], features["depth"]], axis=-1)
+        if self.augmenter:
+            features = self.augmenter(features)
+
+        features = self.feature_creator(features)
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
-        prediction = self.model(features["image"])
+        prediction = self.model(features)
         total_loss, loss_by_type = self.loss_object(features, prediction)
         return prediction, total_loss, loss_by_type, features

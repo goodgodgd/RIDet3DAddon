@@ -4,9 +4,9 @@ import tensorflow as tf
 
 tf.config.set_visible_devices([], 'GPU')
 
-import config_dir.config_generator as cg
-import config as cfg
-from dataloader.dataset_writer import TfrecordMaker
+import RIDet3DAddon.tflow.config_dir.config_generator as cg
+import RIDet3DAddon.config as cfg
+from RIDet3DAddon.tflow.dataloader.dataset_writer import TfrecordMaker
 
 
 def create_tfrecords():

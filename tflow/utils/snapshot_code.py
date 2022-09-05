@@ -35,7 +35,7 @@ class CodeSnapshot:
 
     def copy_config(self):
         # work_dir = os.getcwd()
-        work_dir = os.getcwd().replace("/train", "")
+        work_dir = os.getcwd().replace("/train", "").replace("/tflow", "")
         cfg_copy_file = op.join(self.ckpt_path, f"config_ep{self.start_epoch:02d}.py")
         cfg_orig_file = work_dir + "/config.py"
         shutil.copy(cfg_orig_file, cfg_copy_file)

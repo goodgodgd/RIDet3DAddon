@@ -2,15 +2,15 @@ import numpy as np
 import pandas as pd
 from timeit import default_timer as timer
 
-import config as cfg
-from log.metric import count_true_positives
-from log.logger_pool import LogMeanDetailLoss, LogPositiveDetailObj, LogNegativeDetailObj, LogTrueClass, \
+import RIDet3DAddon.config as cfg
+from RIDet3DAddon.tflow.log.metric import count_true_positives
+from RIDet3DAddon.tflow.log.logger_pool import LogMeanDetailLoss, LogPositiveDetailObj, LogNegativeDetailObj, LogTrueClass, \
     LogFalseClass, LogIouMean, LogBoxYX, LogBoxHW
 
 
 class ExhaustiveLog:
-    def __init__(self):
-        self.columns = cfg.Log.LOSS_NAME + cfg.Log.ExhaustiveLog.DETAIL
+    def __init__(self, loss_names):
+        self.columns = loss_names + cfg.Log.ExhaustiveLog.DETAIL
         self.loggers = self.create_loggers(self.columns)
         self.num_anchors = cfg.ModelOutput.NUM_ANCHORS_PER_SCALE * len(cfg.ModelOutput.FEATURE_SCALES)
         self.num_categs = cfg.ModelOutput.PRED_MAIN_COMPOSITION["category"]
@@ -24,14 +24,14 @@ class ExhaustiveLog:
                   "anchor": [i for i in range(self.num_anchors) for k in range(self.num_categs)],
                   "ctgr": list(range(self.num_categs)) * self.num_anchors,
                   }
-        grtr_map = self.extract_feature_map(grtr["feat"])
-        pred_map = self.extract_feature_map(pred["feat"])
+        grtr_map = self.extract_feature_map(grtr["feat2d"])
+        pred_map = self.extract_feature_map(pred["feat2d"])
         loss_map = self.extract_feature_map(loss, True)
         for key, log_object in self.loggers.items():
             result[key] = (log_object(grtr_map, pred_map, loss_map))
-        metric = self.box_category_match(grtr["inst"], pred["inst"]["bboxes"], range(1, self.num_categs), step)
+        metric = self.box_category_match(grtr["inst2d"], pred["inst2d"], range(1, self.num_categs), step)
         self.metric_data = self.metric_data.append(metric, ignore_index=True)
-        ctgr_anchor_box_num = self.ctgr_anchor_num_box(grtr_map, pred["inst"]["bboxes"], range(1, self.num_categs), range(0, self.num_anchors), step)
+        ctgr_anchor_box_num = self.ctgr_anchor_num_box(grtr_map, pred["inst2d"], range(1, self.num_categs), range(0, self.num_anchors), step)
         self.ctgr_anchor_data = self.ctgr_anchor_data.append(ctgr_anchor_box_num, ignore_index=True)
         data = pd.DataFrame(result)
         self.data = self.data.append(data, ignore_index=True)
@@ -59,6 +59,8 @@ class ExhaustiveLog:
         else:
             slice_keys = list(features.keys())  # ['yxhw', 'object', 'category']
             for key in slice_keys:
+                if key == "merged":
+                    continue
                 # list of (batch, HWA in scale, dim)
                 # scaled_preds = [features[scale_name][key] for scale_name in range(len(features))]
                 scaled_preds = np.concatenate(features[key], axis=1)  # (batch, N, dim)
@@ -78,24 +80,18 @@ class ExhaustiveLog:
 
     def create_loggers(self, columns):
         loggers = dict()
-        if "ciou" in columns:
-            loggers["ciou"] = LogMeanDetailLoss("ciou")
-        if "iou_aware" in columns:
-            loggers["iou_aware"] = LogMeanDetailLoss("iou_aware")
+        if "box_2d" in columns:
+            loggers["box_2d"] = LogMeanDetailLoss("box_2d")
         if "object" in columns:
             loggers["object"] = LogMeanDetailLoss("object")
-        if "category" in columns:
-            loggers["category"] = LogMeanDetailLoss("category")
-        if "sign_ctgr" in columns:
-            loggers["sign_ctgr"] = LogMeanDetailLoss("sign_ctgr")
-        if "mark_ctgr" in columns:
-            loggers["mark_ctgr"] = LogMeanDetailLoss("mark_ctgr")
-        if "sign_speed" in columns:
-            loggers["sign_speed"] = LogMeanDetailLoss("sign_speed")
-        if "mark_speed" in columns:
-            loggers["mark_speed"] = LogMeanDetailLoss("mark_speed")
-        if "distance" in columns:
-            loggers["distance"] = LogMeanDetailLoss("distance")
+        if "category_2d" in columns:
+            loggers["category_2d"] = LogMeanDetailLoss("category_2d")
+        if "category_3d" in columns:
+            loggers["category_3d"] = LogMeanDetailLoss("category_3d")
+        if "box_3d" in columns:
+            loggers["box_3d"] = LogMeanDetailLoss("box_3d")
+        if "theta" in columns:
+            loggers["theta"] = LogMeanDetailLoss("theta")
         if "pos_obj" in columns:
             loggers["pos_obj"] = LogPositiveDetailObj("pos_obj")
         if "neg_obj" in columns:
@@ -116,10 +112,10 @@ class ExhaustiveLog:
         metric_data = [{"step": step, "anchor": -1, "ctgr": 0, "trpo": 0, "grtr": 0, "pred": 0}]
         for category in categories:
             pred_mask = self.create_mask(pred_bbox, category, "category")
-            grtr_mask = self.create_mask(grtr["bboxes"], category, "category")
-            grtr_match_box = self.box_matcher(grtr["bboxes"], grtr_mask)
+            grtr_mask = self.create_mask(grtr, category, "category")
+            grtr_match_box = self.box_matcher(grtr, grtr_mask)
             pred_match_box = self.box_matcher(pred_bbox, pred_mask)
-            metric = count_true_positives(grtr_match_box, pred_match_box, grtr["dontcare"], self.num_categs)
+            metric = count_true_positives(grtr_match_box, pred_match_box, self.num_categs)
             metric["anchor"] = -1
             metric["ctgr"] = category
             metric["step"] = step
@@ -147,9 +143,10 @@ class ExhaustiveLog:
             for category in categories:
                 pred_ctgr_mask = self.create_mask(pred, category, "category")
                 pred_match = self.box_matcher(pred, pred_ctgr_mask * pred_anchor_mask)
-                pred_far_mask = pred["distance"] > cfg.Validation.DISTANCE_LIMIT
-                pred_valid = {key: (val * (1 - pred_far_mask).astype(np.float32)) for key, val in pred_match.items()}
-                pred_num_box = np.sum(pred_valid["object"] > 0)
+                pred_num_box = np.sum(pred_match["object"] > 0)
+                # pred_far_mask = pred["distance"] > cfg.Validation.DISTANCE_LIMIT
+                # pred_valid = {key: (val * (1 - pred_far_mask).astype(np.float32)) for key, val in pred_match.items()}
+                # pred_num_box = np.sum(pred_valid["object"] > 0)
 
                 grtr_catgr_mask = self.create_mask(grtr_anchor_mask, category, None)
                 grtr_num_box = np.sum(grtr_map["object"][..., anchor, :] * grtr_catgr_mask)
