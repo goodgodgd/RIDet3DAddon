@@ -23,7 +23,7 @@ class FeatureDecoder:
             box_yx = self.decode_yx(feature["yxhw"][scale_index][..., :2])
             box_hw = self.decode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio)
             decoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
-            decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
+            decoded["category"].append(tf.sigmoid(feature["category"][scale_index]))
             if cfg3d.ModelOutput.IOU_AWARE:
                 decoded["ioup"].append(tf.sigmoid(feature["ioup"][scale_index]))
                 decoded["object"].append(self.obj_post_process(tf.sigmoid(feature["object"][scale_index]),
@@ -91,31 +91,3 @@ class FeatureDecoder:
         # hw_dec = self.const_3 * tf.sigmoid(hw_raw - self.const_log_2) * anchors_tf
         hw_dec = tf.exp(hw_raw) * anchors_tf
         return hw_dec
-
-    def encode_yx(self, decode_yx, valid_mask):
-        """
-        :param decode_yx: (batch, grid_h, grid_w, anchor, 2)
-        :return: yx_raw = yx logit (batch, grid_h, grid_w, anchor, 2)
-        """
-
-        grid_h, grid_w = decode_yx.shape[1:3]
-        # grid_x: (grid_h, grid_w)
-        grid_x, grid_y = tf.meshgrid(tf.range(grid_w), tf.range(grid_h))
-        # grid: (grid_h, grid_w, 2)
-        grid = tf.stack([grid_y, grid_x], axis=-1)
-        grid = tf.reshape(grid, (1, grid_h, grid_w, 1, 2))
-        grid = tf.cast(grid, tf.float32)
-        divider = tf.reshape([grid_h, grid_w], (1, 1, 1, 1, 2))
-        divider = tf.cast(divider, tf.float32)
-        # yx_dec = (yx_box + grid) / divider
-        yx_box = (decode_yx * divider - grid)
-        yx_box *= valid_mask
-        yx_raw = mu.inv_sigmoid_with_margin(yx_box, self.margin)
-        return yx_raw
-
-    def encode_hw(self, decode_hw, anchors_ratio, valid_mask):
-        num_anc, channel = anchors_ratio.shape  # (3, 2)
-        anchors_tf = tf.reshape(anchors_ratio, (1, 1, 1, num_anc, channel))
-        hw_raw = tf.math.log(decode_hw / anchors_tf)
-        hw_raw = tf.math.multiply_no_nan(hw_raw, valid_mask)
-        return hw_raw

@@ -70,9 +70,9 @@ class ModelFactory:
 
         head3d_features = head3d_model(neck_features, output_features["feat2d"]["yxhw"])
         output_features["feat3d_logit"] = uf3d.merge_and_slice_features(head3d_features, False, "feat3d")
-        output_features["feat3d"] = decoder3d.FeatureDecoder(self.anchors_per_scale).decode(output_features["feat3d_logit"],
-                                                                                            input_tensor["intrinsic"],
-                                                                                            output_features["feat2d"]["yxhw"])
+        output_features["feat3d"] = decoder3d.FeatureDecoder().decode(output_features["feat3d_logit"],
+                                                                      input_tensor["intrinsic"],
+                                                                      output_features["feat2d"]["yxhw"])
         for key in output_features.keys():
             for slice_key in output_features[key].keys():
                 if slice_key != "merged":

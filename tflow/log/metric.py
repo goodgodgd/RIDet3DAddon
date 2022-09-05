@@ -1,19 +1,18 @@
 import numpy as np
-import utils.util_function as uf
+import utils.tflow.util_function as uf
 import config as cfg
 
 
-def count_true_positives(grtr, pred, grtr_dontcare, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
+def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
     """
     :param grtr: slices of features["bboxes"] {'yxhw': (batch, N, 4), 'category': (batch, N)}
-    :param grtr_dontcare: slices of features["dontcare"] {'yxhw': (batch, N, 4), 'category': (batch, N)}
     :param pred: slices of nms result {'yxhw': (batch, M, 4), 'category': (batch, M), ...}
     :param num_ctgr: number of categories
     :param iou_thresh: threshold to determine whether two boxes are overlapped
     :param per_class
     :return:
     """
-    splits = split_true_false(grtr, pred, grtr_dontcare, iou_thresh)
+    splits = split_true_false(grtr, pred, iou_thresh)
     # ========== use split instead grtr, pred
     grtr_valid_tp = splits["grtr_tp"]["yxhw"][..., 2:3] > 0
     grtr_valid_fn = splits["grtr_fn"]["yxhw"][..., 2:3] > 0
@@ -35,16 +34,16 @@ def count_true_positives(grtr, pred, grtr_dontcare, num_ctgr, iou_thresh=cfg.Val
         return {"trpo": trpo_count, "grtr": grtr_count, "pred": pred_count}
 
 
-def split_true_false(grtr, pred, grtr_dc, iou_thresh):
-    pred_valid, pred_far = split_pred_far(pred)
-    grtr_far, grtr_valid = split_grtr_far(pred_far, grtr, iou_thresh)
-    splits = split_tp_fp_fn(pred_valid, grtr_valid, iou_thresh)
-    fp_pred, dc_pred = split_dontcare_pred(splits["pred_fp"], grtr_dc)
-    splits["pred_fp"] = fp_pred
-    splits["pred_dc"] = dc_pred
-    splits["grtr_dc"] = grtr_dc
-    splits["pred_far"] = pred_far
-    splits["grtr_far"] = grtr_far
+def split_true_false(grtr, pred, iou_thresh):
+    # pred_valid, pred_far = split_pred_far(pred)
+    # grtr_far, grtr_valid = split_grtr_far(pred_far, grtr, iou_thresh)
+    splits = split_tp_fp_fn(pred, grtr, iou_thresh)
+    # fp_pred, dc_pred = split_dontcare_pred(splits["pred_fp"])
+    # splits["pred_fp"] = fp_pred
+    # splits["pred_dc"] = dc_pred
+    # splits["grtr_dc"] = grtr_dc
+    # splits["pred_far"] = pred_far
+    # splits["grtr_far"] = grtr_far
     return splits
 
 
@@ -84,21 +83,21 @@ def split_tp_fp_fn(pred, grtr, iou_thresh):
     ctgr_match = grtr["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
     grtr_tp_mask = np.expand_dims(iou_match * ctgr_match, axis=-1)  # (batch, N, 1)
 
-    if cfg.ModelOutput.MINOR_CTGR:
-        minor_mask = (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Traffic sign")) | \
-                     (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Road mark"))
-        pred_minor_ctgr_aligned = numpy_gather(pred["minor_ctgr"], best_idx, 1)
-        minor_ctgr_match = grtr["minor_ctgr"][..., 0] == pred_minor_ctgr_aligned
-        grtr_tp_mask = np.expand_dims((1 - minor_mask) * grtr_tp_mask[..., 0]
-                                      + minor_mask * minor_ctgr_match, axis=-1).astype(bool)
-
-        if cfg.ModelOutput.SPEED_LIMIT:
-            speed_mask = (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["sign"].index("TS_SPEED_LIMIT")) | \
-                         (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["mark"].index("RM_SPEED_LIMIT"))
-            pred_speed_ctgr_aligned = numpy_gather(pred["speed_ctgr"], best_idx, 1)
-            speed_ctgr_match = grtr["speed_ctgr"][..., 0] == pred_speed_ctgr_aligned
-            grtr_tp_mask = np.expand_dims((1 - speed_mask) * grtr_tp_mask[..., 0]
-                                          + speed_mask * speed_ctgr_match, axis=-1).astype(bool)
+    # if cfg.ModelOutput.MINOR_CTGR:
+    #     minor_mask = (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Traffic sign")) | \
+    #                  (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Road mark"))
+    #     pred_minor_ctgr_aligned = numpy_gather(pred["minor_ctgr"], best_idx, 1)
+    #     minor_ctgr_match = grtr["minor_ctgr"][..., 0] == pred_minor_ctgr_aligned
+    #     grtr_tp_mask = np.expand_dims((1 - minor_mask) * grtr_tp_mask[..., 0]
+    #                                   + minor_mask * minor_ctgr_match, axis=-1).astype(bool)
+    #
+    #     if cfg.ModelOutput.SPEED_LIMIT:
+    #         speed_mask = (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["sign"].index("TS_SPEED_LIMIT")) | \
+    #                      (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["mark"].index("RM_SPEED_LIMIT"))
+    #         pred_speed_ctgr_aligned = numpy_gather(pred["speed_ctgr"], best_idx, 1)
+    #         speed_ctgr_match = grtr["speed_ctgr"][..., 0] == pred_speed_ctgr_aligned
+    #         grtr_tp_mask = np.expand_dims((1 - speed_mask) * grtr_tp_mask[..., 0]
+    #                                       + speed_mask * speed_ctgr_match, axis=-1).astype(bool)
 
     grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
     grtr_tp = {key: val * grtr_tp_mask for key, val in grtr.items()}

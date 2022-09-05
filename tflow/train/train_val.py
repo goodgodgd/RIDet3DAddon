@@ -36,8 +36,8 @@ class TrainValBase:
             uf.print_progress(f"training {step}/{self.epoch_steps} steps, "
                               f"time={timer() - start:.3f}, "
                               f"total={total_loss:.3f}, "
-                              f"box={loss_by_type['iou']:.3f}, "
-                              f"object={loss_by_type['object_2d']:.3f}, "
+                              f"box={loss_by_type['box_2d']:.3f}, "
+                              f"object={loss_by_type['object']:.3f}, "
                               f"category={loss_by_type['category_2d']:.3f}, "
                               f"box_3d={loss_by_type['box_3d']:.3f}, "
                               f"theta={loss_by_type['theta']:.3f}, "
@@ -187,19 +187,15 @@ class ModelValidater(TrainValBase):
         self.is_train = False
 
     def run_batch(self, features):
-        for i in range(features["image"].shape[0]):
-            feat_sizes = [np.array(features["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-            feat_2d_map, feat_3d_map = self.feature_creator.create(features["box2d"][i].numpy(),
-                                                                   features["box3d"][i].numpy(), feat_sizes)
-            features["feat2d"] = tu.create_batch_featmap(features, feat_2d_map, "2d")
-            features["feat3d"] = tu.create_batch_featmap(features, feat_3d_map, "3d")
-        features = tu.gt_feat_rename(features)
+        features["image"] = tf.concat([features["image"], features["depth"]], axis=-1)
+        if self.augmenter:
+            features = self.augmenter(features)
+
+        features = self.feature_creator(features)
         return self.run_step(features)
 
     @mode_decor
     def run_step(self, features):
-        rgbd = tf.concat([features["image"], features["depth"]], axis=-1)
-        input_data = {"image": rgbd, "intrinsic": features["intrinsic"]}
-        prediction = self.model(input_data)
+        prediction = self.model(features)
         total_loss, loss_by_type = self.loss_object(features, prediction)
         return prediction, total_loss, loss_by_type, features

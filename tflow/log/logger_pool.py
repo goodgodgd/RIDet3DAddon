@@ -1,7 +1,7 @@
 import numpy as np
 
-import config as cfg
-import utils.util_function as uf
+import RIDet3DAddon.config as cfg
+import utils.tflow.util_function as uf
 
 
 class LogBase:
@@ -47,10 +47,10 @@ class LogMeanDetailLoss(LogBase):
 class LogPositiveObj(LogBase):
     def __call__(self, grtr, pred, loss):
         pos_obj = 0
-        for scale in range(len(grtr["feat"]["object"])):
-            pos_obj_sc = self.compute_pos_obj(grtr["feat"]["object"][scale], pred["feat"]["object"][scale])
+        for scale in range(len(grtr["feat2d"]["object"])):
+            pos_obj_sc = self.compute_pos_obj(grtr["feat2d"]["object"][scale], pred["feat2d"]["object"][scale])
             pos_obj += pos_obj_sc
-        return pos_obj / len(grtr["feat"])
+        return pos_obj / len(grtr["feat2d"]["object"])
 
     def compute_pos_obj(self, grtr_obj_mask, pred_obj_prob):
         obj_num = np.maximum(np.sum(grtr_obj_mask, dtype=np.float32), 1)
@@ -61,10 +61,10 @@ class LogPositiveObj(LogBase):
 class LogNegativeObj(LogBase):
     def __call__(self, grtr, pred, loss):
         neg_obj = 0
-        for scale in range(len(grtr["feat"]["object"])):
-            neg_obj_sc = self.compute_neg_obj(grtr["feat"]["object"][scale], pred["feat"]["object"][scale])
+        for scale in range(len(grtr["feat2d"]["object"])):
+            neg_obj_sc = self.compute_neg_obj(grtr["feat2d"]["object"][scale], pred["feat2d"]["object"][scale])
             neg_obj += neg_obj_sc
-        return neg_obj / len(grtr["feat"])
+        return neg_obj / len(grtr["feat2d"]["object"])
 
     def compute_neg_obj(self, grtr_obj_mask, pred_obj_prob):
         # average top 50 negative objectness probabilities per frame

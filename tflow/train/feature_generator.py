@@ -3,8 +3,7 @@ import numpy as np
 import config as cfg
 import utils.tflow.util_function as uf
 import RIDet3DAddon.tflow.utils.util_function as uf3d
-import RIDet3DAddon.tflow.model.decoder_2d as decoder2d
-import RIDet3DAddon.tflow.model.decoder_3d as decoder3d
+import RIDet3DAddon.tflow.model.encoder_2d as encoder_2d
 
 
 class FeatureMapDistributer:
@@ -56,10 +55,10 @@ class MultiPositiveGenerator:
     def get_box_size_ranges(self):
         size_ranges = []
         for feat_size in self.feat_scales:
-            size_ranges.append([feat_size * np.sqrt(2) / 2, feat_size * np.sqrt(2) * 3])
+            size_ranges.append([feat_size * np.sqrt(2) / 2, feat_size * np.sqrt(2) * 2])
         size_ranges = np.array(size_ranges)
         # no upper bound for large scale
-        size_ranges[0, 0] = 0
+        size_ranges[0, 0] = 0.001
         size_ranges[-1, 1] = 100000
         return size_ranges
     
@@ -73,7 +72,9 @@ class MultiPositiveGenerator:
 
         for key in ["feat2d", "feat3d"]:
             features[key] = uf3d.merge_and_slice_features(features[key], True, key)
-        features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        # features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        #                                                                  features["feat2d"]["object"])
+        features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
                                                                          features["feat2d"]["object"])
         return features
 
@@ -182,8 +183,7 @@ class MultiPositivePolicy(ObjectDistribPolicy):
         self.center_radius = center_radius
         self.resolution = resolution
         self.generate_feature_maps = MultiPositiveGenerator(imshape)
-        self.decoder2d = decoder2d.FeatureDecoder(anchors_per_scale)
-        self.decoder3d = decoder3d.FeatureDecoder(anchors_per_scale)
+        self.decoder2d = encoder_2d.FeatureEncoder(anchors_per_scale)
 
     def __call__(self, features):
         """
@@ -192,8 +192,9 @@ class MultiPositivePolicy(ObjectDistribPolicy):
         :return: 
         """
         features = self.generate_feature_maps(features)
+        # print("feature_map: ", features["feat2d"]["yxhw"][0][0, 23, 127, :])
+        # print("feature_map: ", features["inst2d"]["yxhw"][0])
         features["feat2d_logit"] = self.decoder2d.inverse(features["feat2d"])
-        features["feat3d_logit"] = self.decoder3d.inverse(features["feat3d"], features["intrinsic"], features["feat2d"]["yxhw"])
         features = self.feature_merge(features)
         return features
 

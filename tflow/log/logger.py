@@ -5,10 +5,10 @@ import os
 
 from RIDet3DAddon.tflow.log.exhaustive_log import ExhaustiveLog
 from RIDet3DAddon.tflow.log.history_log import HistoryLog
-from log.visual_log import VisualLog
+from RIDet3DAddon.tflow.log.visual_log import VisualLog
 import utils.tflow.util_function as uf
-import RIDet3DAddon.tflow.model.model_util as mu
-import config as cfg
+import RIDet3DAddon.tflow.model.nms as nms
+import RIDet3DAddon.config as cfg
 import RIDet3DAddon.tflow.config_dir.util_config as uc
 
 
@@ -17,12 +17,13 @@ class Logger:
         self.history_logger = HistoryLog(loss_names)
         self.exhaustive_logger = ExhaustiveLog(loss_names) if exhaustive_log else None
         self.visual_logger = VisualLog(ckpt_path, epoch) if visual_log else None
+        # self.visual_logger = VisualLog(ckpt_path, epoch)
         self.history_filename = op.join(ckpt_path, "history.csv")
         self.exhaust_path = op.join(ckpt_path, "exhaust_log")
         self.num_channel = cfg.ModelOutput.NUM_MAIN_CHANNELS
         if not op.isdir(self.exhaust_path):
             os.makedirs(self.exhaust_path, exist_ok=True)
-        self.nms = mu.NonMaximumSuppression()
+        self.nms = nms.NonMaximumSuppression()
         self.is_train = is_train
         self.epoch = epoch
         self.ckpt_path = ckpt_path
@@ -67,9 +68,7 @@ class Logger:
                 print(f"nan loss: {feat_name}, {features}")
                 valid_result = False
             elif not np.isfinite(features.numpy()).all():
-                a = features.numpy()
-                test = np.isnan(features.numpy())
-                aa = np.where(test == True)
+                test = features.numpy()
                 print(f"nan {feat_name}:", np.quantile(features.numpy(), np.linspace(0, 1, self.num_channel)))
                 valid_result = False
         assert valid_result

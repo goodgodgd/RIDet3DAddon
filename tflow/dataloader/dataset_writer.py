@@ -11,7 +11,7 @@ from timeit import default_timer as timer
 import utils.util_class as uc
 import utils.framework.util_function as uf
 from RIDet3DAddon.tflow.dataloader.example_maker import ExampleMaker
-import dataloader.framework.data_util as tu
+import dataloader.framework.tfrecord_util as tu
 
 
 def drive_manager_factory(dataset_name, split, srcpath):

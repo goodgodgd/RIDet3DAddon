@@ -57,7 +57,7 @@ class ModelOutput:
     PRED_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
     GRTR_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"yxhw": 4, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    PRED_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
@@ -91,9 +91,9 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "3D_test"
+    CKPT_NAME = "3D_test_mp"
     MODE = ["eager", "graph", "distribute"][1]
-    DATA_BATCH_SIZE = 2
+    DATA_BATCH_SIZE = 4
     BATCH_SIZE = DATA_BATCH_SIZE * 2
     GLOBAL_BATCH = BATCH_SIZE
     TRAINING_PLAN = params.TrainingPlan.KITTI_SIMPLE
@@ -145,9 +145,9 @@ class AnchorGeneration:
 
 
 class NmsInfer:
-    MAX_OUT = [0, 19, 14, 9, 5, 7, 5, 5, 6, 5, 5, 10, 5]
-    IOU_THRESH = [0, 0.38, 0.22, 0.24, 0.22, 0.4, 0.1, 0.18, 0.1, 0.1, 0.1, 0.2, 0.4]
-    SCORE_THRESH = [1, 0.16, 0.16, 0.1, 0.12, 0.14, 0.38, 0.18, 0.18, 0.16, 0.28, 0.3, 0.14]
+    MAX_OUT = [0, 10, 10, 10]
+    IOU_THRESH = [0., 0.5, 0.5, 0.5]
+    SCORE_THRESH = [1, 0.5, 0.5, 0.5]
 
 
 class NmsOptim:
@@ -161,10 +161,11 @@ class Validation:
     DISTANCE_LIMIT = 25
     VAL_EPOCH = "latest"
     MAP_TP_IOU_THRESH = [0.5]
+    MAX_BOX = 200
 
 
 class Log:
-    LOSS_NAME = ["iou", "object", "category"]
+    LOSS_NAME = ["box_2d", "object", "category_2d", "category_3d", "box_3d", "theta"]
 
     class HistoryLog:
         SUMMARY = ["pos_obj", "neg_obj"]
@@ -173,6 +174,6 @@ class Log:
         DETAIL = ["pos_obj", "neg_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class"] \
             if ModelOutput.IOU_AWARE else ["pos_obj", "neg_obj", "iou_mean", "box_yx", "box_hw", "true_class",
                                            "false_class"]
-        COLUMNS_TO_MEAN = ["anchor", "ctgr", "iou", "object", "category", "pos_obj",
+        COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d", "category_3d", "box_3d", "theta", "pos_obj",
                            "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class"]
         COLUMNS_TO_SUM = ["anchor", "ctgr", "trpo", "grtr", "pred"]

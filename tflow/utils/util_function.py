@@ -44,5 +44,4 @@ def merge_and_slice_features(featin, is_gt: bool, feat_type: str):
             newfeat.append(slice_feature(scale_data, composition))
         newfeat = scale_align_featmap(newfeat)
         featout.update(newfeat)
-
     return featout

@@ -34,8 +34,14 @@ class KittiReader(DatasetReaderBase):
         print("[KittiReader.init_drive] # frames:", len(frame_names), "first:", frame_names[0])
         return frame_names
 
+    def get_frame_name(self, index):
+        return self.frame_names[index]
+
     def get_image(self, index):
         return cv2.imread(self.frame_names[index])
+
+    def get_image_shape(self, index):
+        return cv2.imread(self.frame_names[index]).shape[:2]
 
     def get_depth(self, index):
         image_file = self.frame_names[index]
@@ -48,6 +54,7 @@ class KittiReader(DatasetReaderBase):
         calib_dict = dict()
         image_file = self.frame_names[index]
         calib_file = image_file.replace("image_2", "calib").replace(".png", ".txt")
+        img_shape = self.get_image_shape(index)
         with open(calib_file, "r") as f:
             lines = f.readlines()
             for line in lines:
@@ -62,6 +69,9 @@ class KittiReader(DatasetReaderBase):
                         new_line.append(float(a))
                     calib_dict[line[0]] = new_line
             calib_dict["P2"] = np.reshape(np.array(calib_dict["P2"]), (3, 4))
+            divider = np.array([[img_shape[1]], [img_shape[0]], [1]])
+            calib_dict["P2"] /= divider
+
             return calib_dict["P2"].astype(np.float32)
 
     def get_bboxes(self, index, raw_hw_shape=None):
@@ -101,6 +111,8 @@ class KittiReader(DatasetReaderBase):
         h = raw_label[8]
         w = raw_label[9]
         l = raw_label[10]
+        if (y2 - y1 < 1) or (x2 - x1 < 1):
+            return None, None, None
         x3d = raw_label[11]
         y3d = raw_label[12]
         z = raw_label[13]

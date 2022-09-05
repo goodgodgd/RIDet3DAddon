@@ -43,7 +43,6 @@ class HeadBase:
             # instance_bbox [b*h*w, c]
             # batch_map : tf.zeros(feature.shape[0])
             align_feature = tf.image.crop_and_resize(feature, instance_bbox, batch_map, (3, 3))
-            # TODO pooling -> valid convolution 3x3
             align_feature = self.align_conv2d(align_feature, c)
             # align_feature [b*h*w, crop_height, crop_width, c]
             aligned_feature.append(tf.reshape(align_feature, (b, h, w, c)))
