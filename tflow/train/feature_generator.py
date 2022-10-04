@@ -72,10 +72,10 @@ class MultiPositiveGenerator:
 
         for key in ["feat2d", "feat3d"]:
             features[key] = uf3d.merge_and_slice_features(features[key], True, key)
-        # features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
-        #                                                                  features["feat2d"]["object"])
         features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
                                                                          features["feat2d"]["object"])
+        # features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        #                                                                  features["feat2d"]["object"])
         return features
 
     def to_grid_over_scales(self, box2d):

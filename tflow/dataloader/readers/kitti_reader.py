@@ -27,10 +27,10 @@ class KittiReader(DatasetReaderBase):
     def init_drive(self, drive_path, split):
         frame_names = glob(op.join(drive_path, "*.png"))
         frame_names.sort()
-        if split == "train":
-            frame_names = frame_names[:-500]
-        else:
-            frame_names = frame_names[-500:]
+        # if split == "train":
+        #     frame_names = frame_names[:-500]
+        # else:
+        #     frame_names = frame_names[-500:]
         print("[KittiReader.init_drive] # frames:", len(frame_names), "first:", frame_names[0])
         return frame_names
 
@@ -118,7 +118,7 @@ class KittiReader(DatasetReaderBase):
         z = raw_label[13]
         theta = raw_label[14]
         bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d, x3d, h, w, l, z, theta], dtype=np.float32)
+        bbox_3d = np.array([y3d, x3d, z, h, w, l, theta], dtype=np.float32)
         return bbox_2d, bbox_3d, category_name
 
     def load_calib_data(self, file):

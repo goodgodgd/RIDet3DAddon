@@ -3,13 +3,12 @@ import numpy as np
 from tensorflow import keras
 
 import model.tflow.backbone as back
+import model.tflow.neck as neck
 import model.tflow.head as head2d
 import RIDet3DAddon.tflow.model.head_3d as head3d
-import model.tflow.neck as neck
 import RIDet3DAddon.tflow.model.decoder_2d as decoder2d
 import RIDet3DAddon.tflow.model.decoder_3d as decoder3d
 import utils.tflow.util_function as uf
-import config as cfg
 import RIDet3DAddon.config as cfg3d
 import model.tflow.model_util as mu
 import RIDet3DAddon.tflow.utils.util_function as uf3d
@@ -56,11 +55,11 @@ class ModelFactory:
         head3d_model = head3d.head_factory(self.head_name, self.head_conv_args, self.training,
                                            self.num_anchors_per_scale, self.pred3d_composition)
 
-        input_tensor1 = tf.keras.layers.Input(shape=self.input_shape, batch_size=self.batch_size)
+        input_tensor = tf.keras.layers.Input(shape=self.input_shape, batch_size=self.batch_size)
         input_tensor2 = tf.keras.layers.Input(shape=(3, 4), batch_size=self.batch_size)
-        input_tensor = {"image": input_tensor1, "intrinsic": input_tensor2}
+        # input_tensor = {"image": input_tensor1, "intrinsic": input_tensor2}
 
-        backbone_features = backbone_model(input_tensor["image"])
+        backbone_features = backbone_model(input_tensor)
         neck_features = neck_model(backbone_features)
 
         head_features = head_model(neck_features)
@@ -71,17 +70,17 @@ class ModelFactory:
         head3d_features = head3d_model(neck_features, output_features["feat2d"]["yxhw"])
         output_features["feat3d_logit"] = uf3d.merge_and_slice_features(head3d_features, False, "feat3d")
         output_features["feat3d"] = decoder3d.FeatureDecoder().decode(output_features["feat3d_logit"],
-                                                                      input_tensor["intrinsic"],
+                                                                      input_tensor2,
                                                                       output_features["feat2d"]["yxhw"])
         for key in output_features.keys():
             for slice_key in output_features[key].keys():
                 if slice_key != "merged":
                     for scale_index in range(len(output_features[key][slice_key])):
                         output_features[key][slice_key][scale_index] = uf3d.merge_dim_hwa(output_features[key][slice_key][scale_index])
-        if cfg.ModelOutput.FEAT_RAW:
+        if cfg3d.ModelOutput.FEAT_RAW:
             output_features["bkbn_feat"] = backbone_features
             output_features["neck_feat"] = neck_features
-        yolo_model = tf.keras.Model(inputs=input_tensor, outputs=output_features, name="yolo_model")
+        yolo_model = tf.keras.Model(inputs=(input_tensor, input_tensor2), outputs=output_features, name="yolo_model")
         return yolo_model
 
 

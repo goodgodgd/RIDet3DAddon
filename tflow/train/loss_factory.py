@@ -48,7 +48,7 @@ class IntegratedLoss:
         auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["feat2d"]["object"][scale]), 1)
         auxiliary["valid_category"] = self.valid_category
         auxiliary["ignore_mask"] = self.get_ignore_mask(grtr["inst2d"], pred["feat2d"], scale)
-        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"], grtr["intrinsic"], pred["feat2d"]["yxhw"])
+        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"])
         return auxiliary
 
     def get_ignore_mask(self, grtr, pred, scale):

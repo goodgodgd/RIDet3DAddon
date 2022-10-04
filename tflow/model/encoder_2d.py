@@ -2,20 +2,17 @@ import numpy as np
 import tensorflow as tf
 
 import RIDet3DAddon.config as cfg3d
-import RIDet3DAddon.tflow.config_dir.util_config as uc
 import model.tflow.model_util as mu
 
 
 class FeatureEncoder:
-    def __init__(self, anchors_per_scale,
-                 channel_compos=uc.get_channel_composition(False)):
+    def __init__(self, anchors_per_scale):
         """
         :param anchors_per_scale: anchor box sizes in ratio per scale
         """
         self.anchors_per_scale = anchors_per_scale
         self.num_scale = len(cfg3d.ModelOutput.FEATURE_SCALES)
         self.margin = cfg3d.Architecture.SIGMOID_DELTA
-        self.channel_compos = channel_compos
 
     def inverse(self, feature):
         encoded = {key: [] for key in feature.keys()}
@@ -24,11 +21,6 @@ class FeatureEncoder:
             anchors_ratio = self.anchors_per_scale[scale_index]
             box_yx = self.encode_yx(feature["yxhw"][scale_index][..., :2], valid_mask)
             box_hw = self.encode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio, valid_mask)
-
-            # if not np.isfinite(box_hw.numpy()).all():
-            #     test = feature["yxhw"][scale_index].numpy()
-            #     i = np.where(box_hw.numpy() == -np.inf)
-            #     print(feature["yxhw"][scale_index].numpy()[np.where(box_hw.numpy() == -np.inf)])
             encoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
             assert encoded["yxhw"][scale_index].shape == feature["yxhw"][scale_index].shape
         return encoded

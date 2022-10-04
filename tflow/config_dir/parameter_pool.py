@@ -1,27 +1,27 @@
 class LossComb:
-    STANDARD = {"box_2d": ([1., 1., 1.], "L1smooth"),
-                "object": ([1., 1., 1.], "BoxObjectnessLoss", 1, 1),
+    STANDARD = {"box_2d": ([10., 10., 10.], "L1smooth"),
+                "object": ([4., 1., .4], "BoxObjectnessLoss", 5, 1),
                 "category_2d": ([1., 1., 1.], "MajorCategoryLoss", "2d"),
                 "category_3d": ([1., 1., 1.], "MajorCategoryLoss", "3d"),
-                "box_3d": ([1., 1., 1.], "Box3DLoss"),
-                "theta": ([1., 1., 1.], "ThetaLoss", 1.1, 1.5)}
+                "box_3d": ([3., 3., 3.], "Box3DLoss"),
+                "theta": ([5., 5., 5.], "ThetaLoss", 1.1, 1.5)}
 
 
 class TrainingPlan:
     KITTI_SIMPLE = [
-        ("kitti", 10, 0.0001, LossComb.STANDARD, True),
-        ("kitti", 50, 0.00001, LossComb.STANDARD, True)
+        ("kitti", 50, 0.001, LossComb.STANDARD, True),
+        ("kitti", 50, 0.0001, LossComb.STANDARD, True),
+        ("kitti", 50, 0.00001, LossComb.STANDARD, True),
     ]
 
 
 class TfrParams:
-    MIN_PIX = {'train': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
-                         },
-               'val': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
+    MIN_PIX = {'train': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0, "Van": 0},
+               'val': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0, "Van": 0
                        }
                }
 
-    CATEGORY_NAMES = {"category": ["Bgd", "Pedestrian", "Car", "Cyclist"],
+    CATEGORY_NAMES = {"category": ["Bgd", "Pedestrian", "Car", "Cyclist", "Van"],
                       "dont": ["DontCare"]
                       }
 
@@ -47,7 +47,7 @@ class TrainParams:
     @classmethod
     def get_3d_pred_composition(cls, iou_aware, categorized=False):
         cls_composition = {"category": len(TfrParams.CATEGORY_NAMES["category"])}
-        reg_composition = {"yxhwl": 5, "z": 1, "theta": 1}
+        reg_composition = {"yxz": 3, "hwl": 3, "theta": 1}
         if iou_aware:
             reg_composition["ioup"] = 1
         composition = {"reg": reg_composition, "cls": cls_composition}

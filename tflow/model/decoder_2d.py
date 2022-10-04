@@ -1,13 +1,13 @@
 import tensorflow as tf
 
 import RIDet3DAddon.config as cfg3d
-import RIDet3DAddon.tflow.config_dir.util_config as uc
+import RIDet3DAddon.tflow.config_dir.util_config as uc3d
 import model.tflow.model_util as mu
 
 
 class FeatureDecoder:
     def __init__(self, anchors_per_scale,
-                 channel_compos=uc.get_channel_composition(False)):
+                 channel_compos=uc3d.get_channel_composition(False)):
         """
         :param anchors_per_scale: anchor box sizes in ratio per scale
         """
@@ -23,7 +23,7 @@ class FeatureDecoder:
             box_yx = self.decode_yx(feature["yxhw"][scale_index][..., :2])
             box_hw = self.decode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio)
             decoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
-            decoded["category"].append(tf.sigmoid(feature["category"][scale_index]))
+            decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
             if cfg3d.ModelOutput.IOU_AWARE:
                 decoded["ioup"].append(tf.sigmoid(feature["ioup"][scale_index]))
                 decoded["object"].append(self.obj_post_process(tf.sigmoid(feature["object"][scale_index]),
@@ -34,17 +34,6 @@ class FeatureDecoder:
             decoded["merged"].append(tf.concat(bbox_pred, axis=-1))
             assert decoded["merged"][scale_index].shape == feature["merged"][scale_index].shape
         return decoded
-
-    def inverse(self, feature):
-        encoded = {key: [] for key in feature.keys()}
-        for scale_index in range(self.num_scale):
-            valid_mask = tf.cast(feature["yxhw"][scale_index][..., :1], dtype=tf.float32)
-            anchors_ratio = self.anchors_per_scale[scale_index]
-            box_yx = self.encode_yx(feature["yxhw"][scale_index][..., :2], valid_mask)
-            box_hw = self.encode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio, valid_mask)
-            encoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
-            assert encoded["yxhw"][scale_index].shape == feature["yxhw"][scale_index].shape
-        return encoded
 
     def obj_post_process(self, obj, ioup):
         iou_aware_factor = 0.4

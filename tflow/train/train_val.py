@@ -19,7 +19,6 @@ class TrainValBase:
         self.epoch_steps = epoch_steps
         self.ckpt_path = ckpt_path
         self.is_train = True
-        self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
         self.anchor_ratio = np.concatenate([anchor for anchor in anchors_per_scale])
         self.feature_creator = feature_creator
 
@@ -45,7 +44,7 @@ class TrainValBase:
 
             if step >= self.epoch_steps:
                 break
-            # if step >= 9:
+            # if step >= 100:
             #     break
 
         print("")
@@ -74,7 +73,7 @@ class ModelTrainer(TrainValBase):
     @mode_decor
     def run_step(self, features):
         with tf.GradientTape() as tape:
-            prediction = self.model(features, training=True)
+            prediction = self.model((features["image"], features["intrinsic"]), training=True)
             total_loss, loss_by_type = self.loss_object(features, prediction)
 
         grads = tape.gradient(total_loss, self.model.trainable_weights)
@@ -196,6 +195,6 @@ class ModelValidater(TrainValBase):
 
     @mode_decor
     def run_step(self, features):
-        prediction = self.model(features)
+        prediction = self.model((features["image"], features["intrinsic"]))
         total_loss, loss_by_type = self.loss_object(features, prediction)
         return prediction, total_loss, loss_by_type, features

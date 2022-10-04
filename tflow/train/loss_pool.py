@@ -143,10 +143,11 @@ class CategoryLoss(LossBase):
         grtr_label = tf.cast(grtr, dtype=tf.int32)
         grtr_onehot = tf.one_hot(grtr_label[..., 0], depth=num_cate, axis=-1)
         # category_loss: (batch, HWA)
-        # category_loss = tf.losses.categorical_crossentropy(grtr_onehot, pred, label_smoothing=0.04)
-        category_loss = tf.losses.binary_crossentropy(grtr_onehot, pred, label_smoothing=0.04)
-        loss = tf.reduce_sum(category_loss)
-        return loss, category_loss
+        category_loss = tf.losses.categorical_crossentropy(grtr_onehot, pred, label_smoothing=0.04)[..., tf.newaxis] * mask
+        # category_loss = tf.losses.binary_crossentropy(grtr_onehot, pred, label_smoothing=0.04)
+        loss_map = tf.reduce_sum(category_loss, axis=-1)
+        loss = tf.reduce_sum(loss_map)
+        return loss, loss_map
 
 
 class MajorCategoryLoss(CategoryLoss):
@@ -172,16 +173,19 @@ class Box3DLoss(LossBase):
         object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
         pred["feat3d_logit"] = self.box_preprocess(pred["feat3d_logit"], grtr["feat3d"], pred["feat3d"], scale)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        box_3d_loss = huber_loss(auxi["feat3d_logit"]["yxhwl"][scale], pred["feat3d_logit"]["yxhwl"][scale]) * object_mask[..., 0]
+        hwl_loss = huber_loss(auxi["feat3d_logit"]["hwl"][scale], pred["feat3d_logit"]["hwl"][scale]) * object_mask[..., 0]
+        yxz_loss = huber_loss(grtr["feat3d"]["yxz"][scale], pred["feat3d"]["yxz"][scale]) * object_mask[..., 0]
+        box_3d_loss = yxz_loss + hwl_loss
         scalar_loss = tf.reduce_sum(box_3d_loss)
         return scalar_loss, box_3d_loss
 
     def box_preprocess(self, pred_logit, grtr, pred, scale):
-        yxh = pred_logit["yxhwl"][scale][..., :3]
-        wl = pred_logit["yxhwl"][scale][..., 3:5]
+        h = pred_logit["hwl"][scale][..., :1]
+        wl = pred_logit["hwl"][scale][..., 1:3]
         M = tf.cast(tf.cos(2*(pred["theta"][scale] - grtr["theta"][scale])) > 0, dtype=tf.float32)
-        wl = M * wl + (1 - M) * wl
-        pred_logit["yxhwl"][scale] = tf.concat([yxh, wl], axis=-1)
+        lw = tf.concat([pred_logit["hwl"][scale][..., 2:3], pred_logit["hwl"][scale][..., 1:2]], axis=-1)
+        wl = M * wl + (1 - M) * lw
+        pred_logit["hwl"][scale] = tf.concat([h, wl], axis=-1)
         return pred_logit
 
 

@@ -15,8 +15,8 @@ class Datasets:
     # specific dataset configs MUST have the same items
     class Kitti:
         NAME = "kitti"
-        PATH = "/home/eagle/mun_workspace/kitti"
-        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist"]
+        PATH = "/home/eagle/mun_workspace/M3D-RPN/data/kitti_split1"
+        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist", "Van", "Truck", "Person_sitting"]
         CATEGORY_REMAP = {}
         # (4,13) * 64
         INPUT_RESOLUTION = (320, 1024)
@@ -48,7 +48,7 @@ class ModelOutput:
     # MAIN -> FMAP, NMS -> INST
     GRTR_MAIN_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
     PRED_MAIN_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE)
-    GRTR_3D_MAIN_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
+    GRTR_3D_MAIN_COMPOSITION = {"yxz": 3, "hwl": 3, "theta": 1, "category": 1}
     PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE)
     PRED_HEAD_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE, True)
     PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE, True)
@@ -56,8 +56,8 @@ class ModelOutput:
     GRTR_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
     PRED_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
-    GRTR_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    GRTR_3D_NMS_COMPOSITION = {"yxz": 3, "hwl": 3, "theta": 1, "category": 1}
+    PRED_3D_NMS_COMPOSITION = {"yxz": 3, "hwl": 3, "theta": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
@@ -91,13 +91,13 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "3D_test_mp"
+    CKPT_NAME = "1004_3d"
     MODE = ["eager", "graph", "distribute"][1]
     DATA_BATCH_SIZE = 4
     BATCH_SIZE = DATA_BATCH_SIZE * 2
     GLOBAL_BATCH = BATCH_SIZE
     TRAINING_PLAN = params.TrainingPlan.KITTI_SIMPLE
-    DETAIL_LOG_EPOCHS = list(range(0, 100, 10))
+    DETAIL_LOG_EPOCHS = list(range(0, 200, 50))
     IGNORE_MASK = True
     # AUGMENT_PROBS = {"Flip": 0.2}
     # AUGMENT_PROBS = {"ColorJitter": 0.5, "CropResize": 1.0, "Blur": 0.2}
@@ -145,9 +145,9 @@ class AnchorGeneration:
 
 
 class NmsInfer:
-    MAX_OUT = [0, 10, 10, 10]
-    IOU_THRESH = [0., 0.5, 0.5, 0.5]
-    SCORE_THRESH = [1, 0.5, 0.5, 0.5]
+    MAX_OUT = [0, 10, 10, 10, 10, 10]
+    IOU_THRESH = [1., 0.3, 0.3, 0.3, 0.3, 0.3]
+    SCORE_THRESH = [1, 0.5, 0.5, 0.5, 0.5, 0.5]
 
 
 class NmsOptim:
@@ -157,8 +157,7 @@ class NmsOptim:
 
 
 class Validation:
-    TP_IOU_THRESH = [1, 0.4, 0.5, 0.5, 0.5, 0.4, 0.2, 0.3, 0.3, 0.4, 0.5, 0.5, 0.5]
-    DISTANCE_LIMIT = 25
+    TP_IOU_THRESH = [1, 0.5, 0.5, 0.5, 0.5, 0.5]
     VAL_EPOCH = "latest"
     MAP_TP_IOU_THRESH = [0.5]
     MAX_BOX = 200
@@ -171,9 +170,10 @@ class Log:
         SUMMARY = ["pos_obj", "neg_obj"]
 
     class ExhaustiveLog:
-        DETAIL = ["pos_obj", "neg_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class"] \
+        DETAIL = ["pos_obj", "neg_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class",
+                  "box_yxz", "box_hwl"] \
             if ModelOutput.IOU_AWARE else ["pos_obj", "neg_obj", "iou_mean", "box_yx", "box_hw", "true_class",
-                                           "false_class"]
+                                           "false_class", "box_yxz", "box_hwl"]
         COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d", "category_3d", "box_3d", "theta", "pos_obj",
-                           "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class"]
+                           "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class", "box_yxz", "box_hwl"]
         COLUMNS_TO_SUM = ["anchor", "ctgr", "trpo", "grtr", "pred"]
