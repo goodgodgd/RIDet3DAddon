@@ -7,7 +7,6 @@ from RIDet3DAddon.torch.log.metric import count_true_positives
 from RIDet3DAddon.torch.log.logger_pool import LogMeanDetailLoss, LogPositiveDetailObj, LogNegativeDetailObj, LogTrueClass, \
     LogFalseClass, LogIouMean, LogBoxYX, LogBoxHW
 
-
 class ExhaustiveLog:
     def __init__(self, loss_names):
         self.columns = loss_names + cfg3d.Log.ExhaustiveLog.DETAIL
@@ -171,7 +170,7 @@ class ExhaustiveLog:
         self.summary = summary
 
     def compute_mean_summary(self, epoch_time):
-        mean_data = self.data[cfg.Log.ExhaustiveLog.COLUMNS_TO_MEAN]
+        mean_data = self.data[cfg3d.Log.ExhaustiveLog.COLUMNS_TO_MEAN]
         mean_category_data = mean_data.groupby("ctgr", as_index=False).mean()
         mean_category_data["anchor"] = -1
 

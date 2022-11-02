@@ -12,6 +12,7 @@ from RIDet3DAddon.torch.train.loss_factory import IntegratedLoss
 import RIDet3DAddon.torch.train.train_val as tv
 import train.framework.train_util as tu
 from RIDet3DAddon.torch.train.feature_generator import FeatureMapDistributer
+from RIDet3DAddon.torch.train.augmentation import augmentation_factory
 from utils.snapshot_code import CodeSnapshot
 import config as cfg
 
@@ -31,15 +32,16 @@ def train_by_plan(dataset_name, end_epoch, learning_rate, loss_weights, model_sa
 
     model, loss_object, optimizer = create_training_parts(batch_size, imshape, anchors_per_scale, ckpt_path,
                                                           learning_rate, loss_weights, valid_category)
+    augmentation = augmentation_factory(cfg3d.Train.AUGMENT_PROBS)
     feature_creator = FeatureMapDistributer(cfg3d.FeatureDistribPolicy.POLICY_NAME, imshape, anchors_per_scale)
-    trainer = tv.ModelTrainer(model, loss_object, optimizer, train_steps, feature_creator, ckpt_path)
+    trainer = tv.ModelTrainer(model, loss_object, optimizer, train_steps, feature_creator, augmentation, ckpt_path)
     validater = tv.ModelValidater(model, loss_object, val_steps, feature_creator, ckpt_path)
 
     for epoch in range(start_epoch, end_epoch):
         print(f"========== Start dataset : {dataset_name} epoch: {epoch + 1}/{end_epoch} ==========")
         detail_log = (epoch in cfg.Train.DETAIL_LOG_EPOCHS)
         trainer.run_epoch(dataset_train, epoch)
-        validater.run_epoch(dataset_val, epoch, True)
+        validater.run_epoch(dataset_val, epoch, detail_log, detail_log)
         save_model_ckpt(ckpt_path, model)
     if model_save:
         save_model_ckpt(ckpt_path, model, f"ep{end_epoch:02d}")

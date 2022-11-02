@@ -21,7 +21,7 @@ class ExamplePreprocess(PreprocessBase):
                            ExampleMinPixel(min_pix),
                            ExampleBoxScaler(),                                    # box in (0~1) scale
                            ExampleZeroPadBbox(max_bbox),
-                           ExampleZeroPadDontCare(max_dontcare),
+                           # ExampleZeroPadDontCare(max_dontcare),
                            ]
 
     def __call__(self, example):
@@ -139,9 +139,9 @@ class ExampleBoxScaler(PreprocessBase):
         bboxes[:, :4] /= np.array([height, width, height, width])
         example["inst2d"] = bboxes
 
-        dc_boxes = example["dontcare"].astype(np.float32)
-        dc_boxes[:, :4] /= np.array([height, width, height, width])
-        example["dontcare"] = dc_boxes
+        # dc_boxes = example["dontcare"].astype(np.float32)
+        # dc_boxes[:, :4] /= np.array([height, width, height, width])
+        # example["dontcare"] = dc_boxes
         return example
 
 
@@ -217,7 +217,7 @@ class ExampleMinPixel(PreprocessBase):
         bboxes = example["inst2d"]
         area = bboxes[:, 2] * bboxes[:, 3]
         min_pixels = np.array([self.min_pixels[int(category)] for category in bboxes[:, 5]])
-        dontcare = bboxes[area < min_pixels]
+        # dontcare = bboxes[area < min_pixels]
         example["inst2d"] = bboxes[area >= min_pixels]
-        example["dontcare"] = np.concatenate([example["dontcare"], dontcare], axis=0)
+        # example["dontcare"] = np.concatenate([example["dontcare"], dontcare], axis=0)
         return example

@@ -66,12 +66,12 @@ if __name__ == '__main__':
     feat3d_test3 = features["feat3d"]["xyz"][2].cpu().detach().numpy()
     # feat3d_logit_test3 = features["feat3d_logit"]["xyz"][2].cpu().detach().numpy()
 
-    feat3d_lwh_test1 = features["feat3d"]["lwh"][0].cpu().detach().numpy()
-    feat3d_lwh_logit_test1 = features["feat3d_logit"]["lwh"][0].cpu().detach().numpy()
-    feat3d_lwh_test2 = features["feat3d"]["lwh"][1].cpu().detach().numpy()
-    feat3d_lwh_logit_test2 = features["feat3d_logit"]["lwh"][1].cpu().detach().numpy()
-    feat3d_lwh_test3 = features["feat3d"]["lwh"][2].cpu().detach().numpy()
-    feat3d_lwh_logit_test3 = features["feat3d_logit"]["lwh"][2].cpu().detach().numpy()
+    feat3d_hwl_test1 = features["feat3d"]["hwl"][0].cpu().detach().numpy()
+    feat3d_hwl_logit_test1 = features["feat3d_logit"]["hwl"][0].cpu().detach().numpy()
+    feat3d_hwl_test2 = features["feat3d"]["hwl"][1].cpu().detach().numpy()
+    feat3d_hwl_logit_test2 = features["feat3d_logit"]["hwl"][1].cpu().detach().numpy()
+    feat3d_hwl_test3 = features["feat3d"]["hwl"][2].cpu().detach().numpy()
+    feat3d_hwl_logit_test3 = features["feat3d_logit"]["hwl"][2].cpu().detach().numpy()
 
     valid_mask1 = feat3d_test1[:, 0, ...] > 0
     valid_mask2 = feat3d_test2[:, 0, ...] > 0
@@ -83,17 +83,17 @@ if __name__ == '__main__':
     # out_feat3d_test2 = out_feat3d_np["xyz"][1] * valid_mask2
     # out_feat3d_test3 = out_feat3d_np["xyz"][2] * valid_mask3
 
-    out_feat3d_lwh_test1 = out_feat3d_np["lwh"][0] * valid_mask1
-    out_feat3d_lwh_test2 = out_feat3d_np["lwh"][1] * valid_mask2
-    out_feat3d_lwh_test3 = out_feat3d_np["lwh"][2] * valid_mask3
+    out_feat3d_hwl_test1 = out_feat3d_np["hwl"][0] * valid_mask1
+    out_feat3d_hwl_test2 = out_feat3d_np["hwl"][1] * valid_mask2
+    out_feat3d_hwl_test3 = out_feat3d_np["hwl"][2] * valid_mask3
 
 
-    valid_mask1_ = out_feat3d_lwh_test1 > 0
-    valid_mask2_ = out_feat3d_lwh_test2 > 0
-    valid_mask3_ = out_feat3d_lwh_test3 > 0
-    valid_test1 = out_feat3d_lwh_test1 * valid_mask1_
-    valid_test2 = out_feat3d_lwh_test2 * valid_mask2_
-    valid_test3 = out_feat3d_lwh_test3 * valid_mask3_
+    valid_mask1_ = out_feat3d_hwl_test1 > 0
+    valid_mask2_ = out_feat3d_hwl_test2 > 0
+    valid_mask3_ = out_feat3d_hwl_test3 > 0
+    valid_test1 = out_feat3d_hwl_test1 * valid_mask1_
+    valid_test2 = out_feat3d_hwl_test2 * valid_mask2_
+    valid_test3 = out_feat3d_hwl_test3 * valid_mask3_
     for i in range(features["image"].shape[0]):
         inst_image = features["image"][i].copy()
         inst_image = VisualLog2d("", 0).draw_boxes(inst_image, features["inst2d"], i, (255, 0, 0))

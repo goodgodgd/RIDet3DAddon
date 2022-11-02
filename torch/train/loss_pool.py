@@ -25,7 +25,7 @@ class L1smooth(LossBase):
         # pred_yxhw_pixel = pred["feat2d"]["yxhw"][scale].cpu().detach().numpy() #* gird_hw
         # grtr_yxhw_pixel = grtr["feat2d"]["yxhw"][scale].cpu().detach().numpy() #* gird_hw
         l1_loss = smoothl1( pred["feat2d_logit"]["yxhw"][scale], grtr["feat2d_logit"]["yxhw"][scale] )
-        l1_loss = l1_loss * object_mask
+        l1_loss = uf.reduce_sum(l1_loss * object_mask, dim=-1)
         # l1_lossnp = l1_loss.cpu().detach().numpy()
         scalar_loss = uf.reduce_sum(l1_loss)
         return scalar_loss, l1_loss
@@ -37,25 +37,25 @@ class Box3DLoss(LossBase):
         pred["feat3d"] = self.box_preprocess(grtr["feat3d"], pred["feat3d"], scale)
         huber_loss = torch.nn.SmoothL1Loss(reduction='none', beta=0.01)
         # huber_loss = torch.nn.HuberLoss(reduction='none', delta=1)
-        box_xyz_loss = huber_loss(pred["feat3d"]["xyz"][scale], grtr["feat3d"]["xyz"][scale]) #* object_mask[..., 0]
-        box_lwh_loss = huber_loss(pred["feat3d_logit"]["lwh"][scale], grtr["feat3d_logit"]["lwh"][scale]) #* object_mask[..., 0]
+        box_xyz_loss = huber_loss(pred["feat3d"]["lxyz"][scale], grtr["feat3d"]["lxyz"][scale]) #* object_mask[..., 0]
+        box_hwl_loss = huber_loss(pred["feat3d_logit"]["hwl"][scale], grtr["feat3d_logit"]["hwl"][scale]) #* object_mask[..., 0]
 
         box_xyz_loss = box_xyz_loss * object_mask
-        box_lwh_loss = box_lwh_loss * object_mask
-        box_3d_loss = torch.cat([box_xyz_loss, box_lwh_loss], dim=-1)
-        scalar_loss = uf.reduce_sum(box_xyz_loss) + uf.reduce_sum(box_lwh_loss)
+        box_hwl_loss = box_hwl_loss * object_mask
+        box_3d_loss = uf.reduce_sum(torch.cat([box_xyz_loss, box_hwl_loss], dim=-1), dim=-1)
+        scalar_loss = uf.reduce_sum(box_xyz_loss) + uf.reduce_sum(box_hwl_loss)
         return scalar_loss, box_3d_loss
 
     def box_preprocess(self, grtr, pred, scale):
         # TODO gt logit
-        l = pred["lwh"][scale][..., 0:1]
-        w = pred["lwh"][scale][..., 1:2]
-        lw = pred["lwh"][scale][..., 0:2]
-        wl = torch.cat([w, l], dim=-1)
-        h = pred["lwh"][scale][..., 2:]
+        l = pred["hwl"][scale][..., 1:2]
+        w = pred["hwl"][scale][..., 0:1]
+        wl = pred["hwl"][scale][..., 0:2]
+        lw = torch.cat([l, w], dim=-1)
+        h = pred["hwl"][scale][..., 2:]
         M = uf.cast(torch.abs(pred["theta"][scale] - grtr["theta"][scale]) < (np.pi / 4), dtype=torch.float32)
-        lw = M * lw + (1 - M) * wl
-        pred["lwh"][scale] = torch.cat([lw, h], dim=-1)
+        wl = M * lw + (1 - M) * wl
+        pred["hwl"][scale] = torch.cat([wl, h], dim=-1)
         return pred
 
 
@@ -100,7 +100,7 @@ class CategoryLoss(LossBase):
         grtr_onehot = F.one_hot(grtr_label, num_cate).to(torch.float32)
         # category_loss: (batch, HWA, K)
         category_loss = F.binary_cross_entropy(pred, grtr_onehot, reduction="none")
-        loss_map = category_loss * mask
+        loss_map = uf.reduce_sum(category_loss * mask, dim=-1)
         loss = uf.reduce_sum(loss_map)
         return loss, loss_map
 

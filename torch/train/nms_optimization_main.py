@@ -104,7 +104,7 @@ class EvaluateNmsParams:
                 max_box = np.ones((num_ctgr,), dtype=np.int64) * results["max_box"][i]
                 iou_thresh = np.ones((num_ctgr,), dtype=np.float32) * results["iou_thresh"][i]
                 score_thresh = np.ones((num_ctgr,), dtype=np.float32) * results["score_thresh"][i]
-                nms_2d_box = nms_(pred, max_box, iou_thresh, score_thresh)
+                nms_2d_box, nms_3d_box = nms_(pred, max_box, iou_thresh, score_thresh)
                 pred_bboxes = uf.slice_feature(nms_2d_box, uc3d.get_bbox_composition(False), -1)
                 pred_bboxes = uf.convert_tensor_to_numpy(pred_bboxes)
                 count_per_class = count_true_positives(grtr["inst2d"], pred_bboxes,

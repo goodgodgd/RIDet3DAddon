@@ -1,6 +1,8 @@
-import numpy as np
-import cv2
 import open3d as o3d
+import os.path as op
+import numpy as np
+from glob import glob
+import cv2
 
 import RIDet3DAddon.torch.config as cfg
 from dataloader.readers.kitti_reader import KittiReader
@@ -15,7 +17,14 @@ class KittiBevReader(KittiReader):
         self.img_shape = self.dataset_cfg.INPUT_RESOLUTION  # height, width
         self.tilt_angle = self.dataset_cfg.TILT_ANGLE
 
-    # def get_bev_box(self, index):
+    def init_drive(self, drive_path, split):
+        frame_names = glob(op.join(drive_path, f"{split}/image/*.png"))
+        frame_names.sort()
+        # frame_names = frame_names[1652:]
+
+        print("[KittiReader.init_drive] # frames:", len(frame_names), "first:", frame_names[0])
+        return frame_names
+
     def extract_2d_box(self, line):
         raw_label = line.strip("\n").split(" ")
         category_name = raw_label[0]
@@ -24,12 +33,17 @@ class KittiBevReader(KittiReader):
             return None, None
         if category_name in self.dataset_cfg.CATEGORY_REMAP:
             category_name = self.dataset_cfg.CATEGORY_REMAP[category_name]
-        y = round(float(raw_label[1]))
-        x = round(float(raw_label[2]))
-        l = round(float(raw_label[3]))
-        w = round(float(raw_label[4]))
-        bbox = np.array([y, x, l, w, 1], dtype=np.int32)
-        return bbox, category_name
+        y = round(float(raw_label[4]))
+        x = round(float(raw_label[5]))
+        l = round(float(raw_label[6]))
+        w = round(float(raw_label[7]))
+
+        tlbr = uf.convert_box_format_yxhw_to_tlbr(np.array([[y, x, l, w, 1]]))
+        vaild = tlbr[:,:4] <3
+        tlbr[:,:4] = tlbr[:,:4] + (vaild*3)
+        bbox = uf.convert_box_format_tlbr_to_yxhw(tlbr)[0]
+
+        return bbox.astype(np.int32), category_name
 
     def extract_3d_box(self, line):
         raw_label = line.strip("\n").split(" ")
@@ -40,33 +54,27 @@ class KittiBevReader(KittiReader):
         if category_name in self.dataset_cfg.CATEGORY_REMAP:
             category_name = self.dataset_cfg.CATEGORY_REMAP[category_name]
 
+        lx = float(raw_label[8])
+        ly = float(raw_label[9])
+        lz = float(raw_label[10])
 
-        tilt_y = float(raw_label[5])
-        tilt_x = float(raw_label[6])
-        height = float(raw_label[7])
+        h = float(raw_label[11])
+        w = float(raw_label[12])
+        l = float(raw_label[13])
 
-        w = float(raw_label[8])
-        l = float(raw_label[9])
-        h = float(raw_label[10])
-        # x = float(raw_label[11])
-        # y = float(raw_label[12])
-        # z = float(raw_label[13])
-        x = float(raw_label[13])
-        y = - float(raw_label[11])
-        z = - float(raw_label[12])
+        cx = float(raw_label[14])
+        cy = float(raw_label[15])
+        cz = float(raw_label[16])
 
-        rotation_y = float(raw_label[14])
+        rotation_y = float(raw_label[17])
 
-        bbox3d = np.array(
-            [x, y, z, l, w, h, rotation_y, ],
-            dtype=np.float32)
+        bbox3d = np.array([lx, ly, lz, h, w, l, cx, cy, cz, rotation_y], dtype=np.float32)
         return bbox3d, category_name
 
 
 def drow_box(img, bbox):
     # bbox = bbox.detach().numpy()
     print(bbox)
-
     x0 = int(bbox[1])
     x1 = int(bbox[3])
     y0 = int(bbox[0])
@@ -80,7 +88,6 @@ def draw_rotated_box(img, corners):
     corners :
     """
     color = (255, 255, 255)
-
     corner_idxs = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
     for corner_idx in corner_idxs:
         cv2.line(img,

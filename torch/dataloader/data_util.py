@@ -26,17 +26,60 @@ def normalization(depthmap):
     return normal_depthmap
 
 
-def get_box3d_corner(bbox_wlh):
-    brl = np.asarray([+bbox_wlh[..., 0] / 2, -bbox_wlh[..., 1] / 2, -bbox_wlh[..., 2] / 2])
-    bfl = np.asarray([+bbox_wlh[..., 0] / 2, +bbox_wlh[..., 1] / 2, -bbox_wlh[..., 2] / 2])
-    bfr = np.asarray([-bbox_wlh[..., 0] / 2, +bbox_wlh[..., 1] / 2, -bbox_wlh[..., 2] / 2])
-    brr = np.asarray([-bbox_wlh[..., 0] / 2, -bbox_wlh[..., 1] / 2, -bbox_wlh[..., 2] / 2])
-    trl = np.asarray([+bbox_wlh[..., 0] / 2, -bbox_wlh[..., 1] / 2, +bbox_wlh[..., 2] / 2])
-    tfl = np.asarray([+bbox_wlh[..., 0] / 2, +bbox_wlh[..., 1] / 2, +bbox_wlh[..., 2] / 2])
-    tfr = np.asarray([-bbox_wlh[..., 0] / 2, +bbox_wlh[..., 1] / 2, +bbox_wlh[..., 2] / 2])
-    trr = np.asarray([-bbox_wlh[..., 0] / 2, -bbox_wlh[..., 1] / 2, +bbox_wlh[..., 2] / 2])
+def extract_corner(xyz, hwl, theta, intrinsic, frame_idx, valid_mask):
+    box_3d = list()
+    box_3d_center = list()
+    for n in range(xyz.shape[0]):
+        theta = theta[n]
+        x = xyz[n, 0]
+        y = xyz[n, 1]
+        z = xyz[n, 2]
+        w = theta[n, 0]
+        l = theta[n, 1]
+        h = hwl[n, 2]
+        center = xyz[n]
+        corner = list()
+        for i in [1, -1]:
+            for j in [1, -1]:
+                for k in [0, 1]:
+                    point = np.copy(center)
+                    point[0] = x + i * w / 2 * np.cos(-theta + np.pi / 2) + (j * i) * l / 2 * np.cos(-theta)
+                    point[2] = z + i * w / 2 * np.sin(-theta + np.pi / 2) + (j * i) * l / 2 * np.sin(-theta)
+                    point[1] = y - k * h
+
+                    point = np.append(point, 1)
+                    point = np.dot(intrinsic, point)
+                    point = point[:2] / point[2]
+                    corner.append(point)
+        box_3d.append(corner)
+        center_point = np.dot(intrinsic, np.append(center, 1))
+        center_point = center_point[:2] / center_point[2]
+        box_3d_center.append(center_point)
+    return box_3d, box_3d_center
+
+
+def get_box3d_corner_under(bbox_hwl):
+    brl = np.asarray([+bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, 0])
+    bfl = np.asarray([+bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, 0])
+    bfr = np.asarray([-bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, 0])
+    brr = np.asarray([-bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, 0])
+    trl = np.asarray([+bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, bbox_hwl[..., 0]])
+    tfl = np.asarray([+bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] ])
+    tfr = np.asarray([-bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] ])
+    trr = np.asarray([-bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, bbox_hwl[..., 0]])
     return np.asarray([brl, bfl, bfr, brr, trl, tfl, tfr, trr])
 
+
+def get_box3d_corner(bbox_hwl):
+    brl = np.asarray([+bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, -bbox_hwl[..., 0] / 2])
+    bfl = np.asarray([+bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, -bbox_hwl[..., 0] / 2])
+    bfr = np.asarray([-bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, -bbox_hwl[..., 0] / 2])
+    brr = np.asarray([-bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, -bbox_hwl[..., 0] / 2])
+    trl = np.asarray([+bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] / 2])
+    tfl = np.asarray([+bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] / 2])
+    tfr = np.asarray([-bbox_hwl[..., 1] / 2, +bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] / 2])
+    trr = np.asarray([-bbox_hwl[..., 1] / 2, -bbox_hwl[..., 2] / 2, bbox_hwl[..., 0] / 2])
+    return np.asarray([brl, bfl, bfr, brr, trl, tfl, tfr, trr])
 
 def create_rotation_matrix(euler):
     (yaw, pitch, roll) = euler
@@ -83,14 +126,18 @@ def draw_rotated_box(img, corners):
                      color, 2)
     return img
 
-def draw_box(img, bboxes_2d):
+
+def draw_box(img, bboxes_2d, image_shape=False):
     draw_img = img.copy()
-    image_shape = draw_img.shape
+    if image_shape:
+        shape = draw_img.shape
+    else:
+        shape = (1,1)
     for bbox in bboxes_2d:
-        y0 = int(bbox[0] * image_shape[0])
-        x0 = int(bbox[1] * image_shape[1])
-        y1 = int(bbox[2] * image_shape[0])
-        x1 = int(bbox[3] * image_shape[1])
+        y0 = int(bbox[0] * shape[0])
+        x0 = int(bbox[1] * shape[1])
+        y1 = int(bbox[2] * shape[0])
+        x1 = int(bbox[3] * shape[1])
         draw_img = cv2.rectangle(draw_img, (x0, y0), (x1, y1), (255, 255, 255), 2)
 
     return draw_img

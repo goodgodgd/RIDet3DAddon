@@ -3,6 +3,7 @@ import numpy as np
 import utils.framework.util_function as uf
 import RIDet3DAddon.torch.utils.util_function as uf3d
 import config as cfg
+import RIDet3DAddon.torch.config as cfg3d
 
 
 def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
@@ -111,12 +112,12 @@ def count_per_class(boxes, mask, num_ctgr):
     return boxes_count
 
 
-def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg.Validation.TP_IOU_THRESH):
+def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg3d.Validation.TP_IOU_THRESH):
     splits = split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh)
-    grtr_valid_tp = splits["grtr_tp"]["yxhwl"][..., 2:3] > 0
-    grtr_valid_fn = splits["grtr_fn"]["yxhwl"][..., 2:3] > 0
-    pred_valid_tp = splits["pred_tp"]["yxhwl"][..., 2:3] > 0
-    pred_valid_fp = splits["pred_fp"]["yxhwl"][..., 2:3] > 0
+    grtr_valid_tp = splits["grtr_tp"]["hwl"][..., 0:1] > 0
+    grtr_valid_fn = splits["grtr_fn"]["hwl"][..., 0:1] > 0
+    pred_valid_tp = splits["pred_tp"]["hwl"][..., 0:1] > 0
+    pred_valid_fp = splits["pred_fp"]["hwl"][..., 0:1] > 0
     grtr_count = np.sum(grtr_valid_tp + grtr_valid_fn)
     pred_count = np.sum(pred_valid_tp + pred_valid_fp)
     trpo_count = np.sum(pred_valid_tp)
@@ -127,8 +128,8 @@ def split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh):
     batch, M, _ = pred["category"].shape
     batch_iou = list()
     for frame_idx in range(batch):
-        iou = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["xyz"].shape[1]).astype(np.bool),
-                             np.ones(pred["xyz"].shape[1]).astype(np.bool))  # (batch, N, M)
+        iou = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["cxyz"].shape[1]).astype(np.bool),
+                             np.ones(pred["cxyz"].shape[1]).astype(np.bool))  # (batch, N, M)
         batch_iou.append(iou)
     batch_iou = np.stack(batch_iou, axis=0)
     best_iou = np.max(batch_iou, axis=-1)  # (batch, N)
@@ -166,9 +167,9 @@ def compute_3d_iou(boxes1, boxes2, frame_idx, mask_1, mask_2):
 
 
 def extract_param(boxes, frame_idx, score_mask):
-    hwl = np.stack([boxes["lwh"][frame_idx, :, 2], boxes["lwh"][frame_idx, :, 0],
-                    boxes["lwh"][frame_idx, :, 1]], axis=-1)[score_mask]
-    xyz = boxes["xyz"][frame_idx, ...][score_mask]
+    hwl = np.stack([boxes["hwl"][frame_idx, :, 2], boxes["hwl"][frame_idx, :, 0],
+                    boxes["hwl"][frame_idx, :, 1]], axis=-1)[score_mask]
+    xyz = boxes["cxyz"][frame_idx, ...][score_mask]
     theta = boxes["theta"][frame_idx, :, 0][score_mask]
     return hwl, xyz, theta
 
