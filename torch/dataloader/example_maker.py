@@ -34,7 +34,7 @@ class ExampleMaker:
         box2d, categories = self.data_reader.get_2d_box(index, raw_hw_shape)
         box3d, _ = self.data_reader.get_3d_box(index)
 
-        example["inst2d"], example["inst3d"], example["dontcare"] = self.merge_box_and_category(box2d, box3d, categories)
+        example["inst2d"], example["inst3d"], _ = self.merge_box_and_category(box2d, box3d, categories)
         example = self.preprocess_example(example)
         example["frame_names"] = self.data_reader.frame_names[index]
         # if index % 100 == 10:

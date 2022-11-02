@@ -47,7 +47,7 @@ def analyze_performance(dataset_name, loss_weights, weight_suffix, latest_epoch)
     validater = tv.ModelValidater(model, loss_object, val_steps, feature_creator, ckpt_path)
 
     print(f"========== Start analyze_performance with {dataset_name} epoch: {weight_suffix} ==========")
-    validater.run_epoch(dataset_val, latest_epoch, True, False, val_only=True)
+    validater.run_epoch(dataset_val, latest_epoch, True, True, val_only=True)
 
 
 def get_dataset(datapath, dataset_name, shuffle, batch_size, split, anchors):

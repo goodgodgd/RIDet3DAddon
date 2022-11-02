@@ -8,6 +8,7 @@ import RIDet3DAddon.torch.config as cfg3d
 from RIDet3DAddon.torch.log.metric import split_true_false, split_tp_fp_fn_3d
 import utils.framework.util_function as uf
 from dataloader.readers.kitti_reader import SensorConfig
+import RIDet3DAddon.torch.dataloader.data_util as du
 import config as cfg
 
 
@@ -67,7 +68,6 @@ class VisualLog2d(VisualLog):
                 cv2.waitKey(10)
             filename = op.join(self.vlog_path, f"{step * batch + i:05d}.jpg")
             cv2.imwrite(filename, vlog_image)
-
 
     def draw_boxes(self, image, bboxes, frame_idx, color, intrinsic=None):
         """
@@ -148,6 +148,9 @@ class VisualLog3d(VisualLog):
             os.makedirs(self.bev_view_path)
         self.categories = {i: ctgr_name for i, ctgr_name in enumerate(cfg3d.Dataloader.CATEGORY_NAMES["category"])}
         self.orgin_path = cfg3d.Datasets.DATASET_CONFIG.ORIGIN_PATH
+        self.tilt_angle = cfg3d.Datasets.DATASET_CONFIG.TILT_ANGLE
+        self.bev_img_shape = cfg3d.Datasets.DATASET_CONFIG.INPUT_RESOLUTION
+        self.cell_size = cfg3d.Datasets.DATASET_CONFIG.CELL_SIZE
 
     def __call__(self, step, grtr, pred):
         """
@@ -159,30 +162,33 @@ class VisualLog3d(VisualLog):
 
     def visual_3d(self, step, grtr, pred):
         splits = split_tp_fp_fn_3d(grtr['inst3d'], pred["inst3d"], grtr['inst2d']["object"], cfg3d.Validation.TP_IOU_THRESH)
-        batch = splits["grtr_tp"]["xyz"].shape[0]
+        batch = splits["grtr_tp"]["cxyz"].shape[0]
 
         for i in range(batch):
             # grtr_log_keys = ["pred_object", "pred_ctgr_prob", "pred_score", "distance"]
-            org_image, intrinsic = self.get_origin_image(grtr["frame_names"][i])
+            org_image, calib = self.get_origin_image(grtr["frame_names"][i])
+
             image_bev = grtr["image"][i].astype(np.uint8)
             image_grtr = org_image.copy()
-            image_grtr, bev_image = self.draw_boxes(image_grtr, image_bev, splits["grtr_tp"], i, (0, 255, 0), (255, 0, 0),
-                                         intrinsic)
-            image_grtr, bev_image = self.draw_boxes(image_grtr, image_bev, splits["grtr_fn"], i, (0, 0, 255), (255, 0, 0),
-                                         intrinsic)
+            image_grtr, bev_image = self.draw_boxes(image_grtr, image_bev, splits["grtr_tp"], i, (0, 255, 0),
+                                                    (255, 255, 0),
+                                                    calib)
+            image_grtr, bev_image = self.draw_boxes(image_grtr, image_bev, splits["grtr_fn"], i, (0, 0, 255),
+                                                    (255, 255, 0),
+                                                    calib)
 
             image_pred = org_image.copy()
-            image_pred, bev_image = self.draw_boxes(image_pred, image_bev, splits["pred_tp"], i, (0, 255, 0), (0, 0, 255),
-                                         intrinsic)
-            image_pred, bev_image = self.draw_boxes(image_pred, image_bev, splits["pred_fp"], i, (0, 0, 255), (0, 0, 255),
-                                         intrinsic)
-
-
+            image_pred, bev_image = self.draw_boxes(image_pred, image_bev, splits["pred_tp"], i, (0, 255, 0),
+                                                    (0, 0, 255),
+                                                    calib)
+            image_pred, bev_image = self.draw_boxes(image_pred, image_bev, splits["pred_fp"], i, (0, 0, 255),
+                                                    (0, 0, 255),
+                                                    calib)
 
             vlog_image = np.concatenate([image_pred, image_grtr], axis=0)
-            if step % 50 == 10:
-                cv2.imshow("detection_result", vlog_image)
-                cv2.waitKey(10)
+            # if step % 50 == 10:
+            cv2.imshow("detection_result", vlog_image)
+            cv2.waitKey(10)
             filename = op.join(self.vlog_path, f"{step * batch + i:05d}.jpg")
             bev_filename = op.join(self.bev_view_path, f"{step * batch + i:05d}.jpg")
             cv2.imwrite(filename, vlog_image)
@@ -190,68 +196,73 @@ class VisualLog3d(VisualLog):
 
     def get_origin_image(self, frame_name):
         frame_num = frame_name.split("/")[-1]
-        origin_file = glob.glob(os.path.join(self.orgin_path, f"*/{frame_num}"))[0]
-        calib_file = origin_file.replace("image_2", "calib").replace("png","txt")
+        origin_file = glob.glob(os.path.join(self.orgin_path, f"{frame_num}"))[0]
+        calib_file = origin_file.replace("image_2", "calib").replace("png", "txt")
         origin_image = cv2.imread(origin_file)
-        P2 = SensorConfig(calib_file).P
+        calib = SensorConfig(calib_file)
 
-        divider = np.array([[origin_image.shape[1]], [origin_image.shape[0]], [1]])
-        P2 /= divider
-        return origin_image, P2
+        # divider = np.array([[origin_image.shape[1]], [origin_image.shape[0]], [1]])
+        # P2 /= divider
+        return origin_image, calib
 
-    def draw_boxes(self, image, bev_image, bboxes, frame_idx, p_fp_color, gt_pr_color, intrinsic):
-        box_lwh = bboxes["lwh"][frame_idx]  # (N, 4)
+    def draw_boxes(self, image, bev_image, bboxes, frame_idx, p_fp_color, gt_pr_color, calib):
+        if np.max(bboxes['hwl']) == 0:
+            return image, bev_image
+        box_hwl = bboxes["hwl"][frame_idx]  # (N, 4)
         category = bboxes["category"][frame_idx]  # (N, 1)
-        valid_mask = box_lwh[:, 2] > 0  # (N,) h>0
+        valid_mask = box_hwl[:, 2] > 0  # (N,) h>0
         iou = None
         if "iou" in bboxes.keys():
             iou = bboxes["iou"][frame_idx][valid_mask]
-        box_3d, box_3d_center, bev_box = self.extract_corner(bboxes, intrinsic, frame_idx, valid_mask)
+        divider = np.array([[image.shape[1]], [image.shape[0]], [1]])
+        intrinsic = calib.P / divider
+
+        box_3d, box_3d_center = self.extract_corner(bboxes, intrinsic, frame_idx, valid_mask)
         category = category[valid_mask, 0].astype(np.int32)
-        draw_image = self.draw_cuboid(image, box_3d, box_3d_center, category, bboxes["xyz"][frame_idx,:,2][valid_mask], p_fp_color)
+        draw_image = self.draw_cuboid(image, box_3d, box_3d_center, category,
+                                      bboxes["cxyz"][frame_idx, :, 2][valid_mask], p_fp_color)
+        bev_box = self.convert_3d_to_bev(bboxes, calib, frame_idx, valid_mask)
+        if not bev_box:
+            return draw_image, bev_image
         bev_view = self.draw_bev(bev_image, bev_box, category, gt_pr_color, iou)
         # cv2.imshow("test", draw_image)
         # cv2.waitKey(100)
         return draw_image, bev_view
 
     def extract_corner(self, bboxes, intrinsic, frame_idx, valid_mask):
-        valid_xyz = bboxes["xyz"][frame_idx][valid_mask]
-        valid_lwh = bboxes["lwh"][frame_idx][valid_mask]
+        valid_xyz = bboxes["cxyz"][frame_idx][valid_mask]
+        valid_hwl = bboxes["hwl"][frame_idx][valid_mask]
         valid_theta = bboxes["theta"][frame_idx][valid_mask]
         box_3d = list()
         box_3d_center = list()
-        bev_box = list()
         for n in range(valid_xyz.shape[0]):
             theta = valid_theta[n]
-            z = valid_xyz[n, 0]
-            y = - valid_xyz[n, 2]
-            x = - valid_xyz[n, 1]
+            x = valid_xyz[n, 0]
+            y = valid_xyz[n, 1]
+            z = valid_xyz[n, 2]
 
-            h = valid_lwh[n, 2]
-            w = valid_lwh[n, 1]
-            l = valid_lwh[n, 0]
+            h = valid_hwl[n, 0]
+            w = valid_hwl[n, 1]
+            l = valid_hwl[n, 2]
             center = valid_xyz[n]
             corner = list()
-            bev_coner = list()
             for i in [1, -1]:
                 for j in [1, -1]:
-                    for k in [0, 1]:
+                    for k in [-1, 1]:
                         point = np.copy(center)
                         point[0] = x + i * w / 2 * np.cos(-theta + np.pi / 2) + (j * i) * l / 2 * np.cos(-theta)
                         point[2] = z + i * w / 2 * np.sin(-theta + np.pi / 2) + (j * i) * l / 2 * np.sin(-theta)
-                        point[1] = y - k * h
-                        bev_coner.append(point)
+                        point[1] = y - k * h/2
 
                         point = np.append(point, 1)
                         point = np.dot(intrinsic, point)
                         point = point[:2] / point[2]
                         corner.append(point)
-            bev_box.append(np.stack(bev_coner, axis=0))
             box_3d.append(corner)
             center_point = np.dot(intrinsic, np.append(center, 1))
             center_point = center_point[:2] / center_point[2]
             box_3d_center.append(center_point)
-        return box_3d, box_3d_center, bev_box
+        return box_3d, box_3d_center
 
     def draw_cuboid(self, image, bbox, bbox_center, category, valid_depth, color):
         image = image.copy()
@@ -269,6 +280,7 @@ class VisualLog3d(VisualLog):
             image = self.draw_line(image, point, center, color, annotation, depth)
         return image
 
+
     def draw_line(self, image, line, center, color, annotation, depth):
         for i in range(4):
             image = cv2.line(image, line[i * 2], line[i * 2 + 1], color)
@@ -276,8 +288,56 @@ class VisualLog3d(VisualLog):
             image = cv2.line(image, line[i], line[(i + 2) % 8], color)
         cv2.putText(image, annotation, (line[0][0], line[0][1]), cv2.FONT_HERSHEY_PLAIN, 1.0, color, 2)
         cv2.circle(image, (center[0][0], center[0][1]), 1, (255, 255, 0), 2)
-        cv2.putText(image, depth, (center[0][0]+10, center[0][1]+10), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 0), 2)
+        cv2.putText(image, depth, (center[0][0] + 10, center[0][1] + 10), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 0), 2)
         return image
+
+    def convert_3d_to_bev(self, bboxes, calib, frame_idx, valid_mask):
+        theta = bboxes['theta'][frame_idx][valid_mask]
+        xyz = bboxes["lxyz"][frame_idx][valid_mask]
+        hwl = bboxes['hwl'][frame_idx][valid_mask]
+        bev_boxes = []
+        for box_id in range(xyz.shape[0]):
+            center = xyz[box_id][np.newaxis,...]
+            # pts_3d_ref = np.transpose(
+            #     np.dot(np.linalg.inv(calib.R0), np.transpose(xyz[box_id, np.newaxis, ...])))
+            # n = pts_3d_ref.shape[0]
+            # pts_3d_ref = np.hstack((pts_3d_ref, np.ones((n, 1))))
+            # centroid = np.dot(pts_3d_ref, np.transpose(calib.C2V))
+            R = du.create_rotation_matrix([theta[box_id, 0], 0, 0])
+            corners = du.get_box3d_corner(hwl[box_id])
+            corners = np.dot(R, corners.T).T + center
+            corners = np.concatenate([corners, center], axis=0)
+            tilt = du.create_rotation_matrix([0, self.tilt_angle, 0])
+            rotated_corners = np.dot(tilt, corners.T).T
+            pixels = self.pixel_coordinates(rotated_corners[:, :2], self.tilt_angle)
+            imshape = [self.bev_img_shape[0], self.bev_img_shape[1], 3]
+            valid_mask = (pixels[:, 0] >= 0) & (pixels[:, 0] < imshape[0] - 1) & \
+                         (pixels[:, 1] >= 0) & (pixels[:, 1] < imshape[1] - 1)
+            pixels = pixels[valid_mask, :]
+            if pixels.size < 18:
+                continue
+                # return False
+            xmin = np.min(pixels[:, 1])
+            xmax = np.max(pixels[:, 1])
+            ymin = np.min(pixels[:, 0])
+            ymax = np.max(pixels[:, 0])
+            bev_box = np.array([ymin, xmin, ymax, xmax])
+            bev_boxes.append(bev_box)
+        # bev_boxes = np.stack(bev_boxes, axis=0)
+
+        return bev_boxes
+
+    def pixel_coordinates(self, tilted_points, tilt_angle):
+        """
+
+        :param tilted_points: tilted_points(x,y)
+        :param tilt_angle: rotation_y(default : 0)
+        :return:
+        """
+        image_x = (self.bev_img_shape[1] / 2) - (tilted_points[:, 1] / self.cell_size)
+        image_y = (self.bev_img_shape[0]) - (tilted_points[:, 0] / self.cell_size)
+        pixels = np.stack([image_y, image_x], axis=1)
+        return pixels
 
     def draw_bev(self, image, bev_box, category, color, iou):
         """
@@ -285,20 +345,12 @@ class VisualLog3d(VisualLog):
         :return:
         """
         for i in range(len(bev_box)):
-            image_x = (image.shape[1] / 2) - (-bev_box[i][:, 0] / 0.05)
-            image_y = (image.shape[0]) - (bev_box[i][:, 2] / 0.05)
-            pixels = np.stack([image_x, image_y], axis=1)
-            xmin = np.min(pixels[:, 0]).astype(int)
-            ymin = np.min(pixels[:, 1]).astype(int)
-            xmax = np.max(pixels[:, 0]).astype(int)
-            ymax = np.max(pixels[:, 1]).astype(int)
-            image = self.draw_rotated_box(image, pixels, color)
-            # cv2.rectangle(image, (xmin, ymin), (xmax, ymax), color, 2)
+
+            y1, x1, y2, x2 = bev_box[i].astype(np.int32)
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
 
             annotation = "dontcare" if category[i] < 0 else f"{self.categories[category[i]]}"
-            cv2.putText(image, annotation, (xmin, ymin), cv2.FONT_HERSHEY_PLAIN, 1.0, color, 2)
-            if iou is not None:
-                cv2.putText(image, f"{iou[i]:.3f}", (xmax, ymax), cv2.FONT_HERSHEY_PLAIN, 1.0, color, 2)
+            cv2.putText(image, annotation, (x1, y1), cv2.FONT_HERSHEY_PLAIN, 1.0, color, 2)
         return image
 
     def draw_rotated_box(self, img, corners, color):

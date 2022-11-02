@@ -1,4 +1,5 @@
 import os
+import os.path as op
 import numpy as np
 import cv2
 import open3d as o3d
@@ -19,18 +20,42 @@ class KittiBevMaker(KittiReader):
         self.img_shape = self.dataset_cfg.INPUT_RESOLUTION  # height, width
         self.tilt_angle = self.dataset_cfg.TILT_ANGLE
 
+    def init_drive(self, drive_path, split):
+        split_file = op.join(drive_path, f"{split}.txt")
+        frame_names = self.push_list(split_file)
+        print("[KittiReader.init_drive] # frames:", len(frame_names), "first:", frame_names[0])
+        return frame_names
+
     def get_bev_image(self, index):
         image_file = self.frame_names[index]
         lidar_file = image_file.replace("image_2", "velodyne").replace(".png", ".bin")
         point_cloud = np.fromfile(lidar_file, dtype=np.float32)
         point_cloud = point_cloud.reshape((-1, 4))
-        plane_model = self.get_ground_plane(point_cloud[:, :3])
-        point_cloud_hrn = self.get_points_with_hrn(point_cloud, plane_model, self.tilt_angle)
-        flpixels = self.pixel_coordinates(point_cloud_hrn, self.tilt_angle)
+        # plane_model = self.get_ground_plane(point_cloud[:, :3])
+        point_cloud_hrn = self.get_points_with_hrn(point_cloud, None, self.tilt_angle)
+        flpixels = self.pixel_coordinates(point_cloud_hrn)
         result_depthmap = self.interpolation(flpixels, point_cloud_hrn, 3, 6)
         normal_bev = du.normalization(result_depthmap)
         result_bev = (normal_bev * 255).astype(np.uint8)
         return result_bev, point_cloud_hrn
+
+    def get_points_with_hrn(self, point_cloud, plane_model, tilt_angle):
+        mask = (point_cloud[:, 0] > self.xy_range[0]) & \
+               (point_cloud[:, 0] < self.xy_range[1]) & \
+               (point_cloud[:, 1] > self.xy_range[2]) & \
+               (point_cloud[:, 1] < self.xy_range[3])
+        point_cloud = point_cloud[mask, :]
+        points = point_cloud[:, :3]
+        # lidar_height = plane_model[3]
+        # points[:, 2] += lidar_height
+
+        tilted_points, normal_theta = self.get_rotation_and_normal_vector(points, tilt_angle)
+        height = self.cal_height(points, tilt_angle)
+        reflence = point_cloud[:, 3:4]
+
+        # point_cloud_hrn shape : (N,6) :[tilted_points(x,y,z), points_z, reflence, normal_theta]
+        point_cloud_hrn = np.concatenate([tilted_points, height, reflence, normal_theta], axis=1)
+        return point_cloud_hrn
 
     def get_bev_box(self, index):
         """
@@ -38,45 +63,38 @@ class KittiBevMaker(KittiReader):
                         dimensions_2, dimensions_3, dimensions_1,
                         location_1, location_2, rotation_y}
         """
-        image_file = self.frame_names[index]
-        lidar_file = image_file.replace("image_2", "velodyne").replace(".png", ".bin")
-        point_cloud = np.fromfile(lidar_file, dtype=np.float32)
-        point_cloud = point_cloud.reshape((-1, 4))
-
-        # print("minmax", np.min(point_cloud, axis=0), np.max(point_cloud, axis=0))
-        plane_model = self.get_ground_plane(point_cloud[:, :3])
         bbox3d, category_name = self.get_3d_box(index)
         calib = self.get_calibration(index)
         annotation = []
         ann_cata = []
-        rotated_corners = []
         for box, cate in zip(bbox3d, category_name):
-            ann, rotated_corner = self.convert_3d_to_bev(box, calib, plane_model)
+            to = box[-3:]
+            ann, box_3d, rotated_corners = self.convert_3d_to_bev(box[:-3], calib)
             if np.max(ann) == 0:
                 continue
-            # box = np.delete(box, -2)
-            # box = np.delete(box, 2)
-            ann = np.concatenate([ann, box], axis=-1)
+            ann = np.concatenate([to, ann, box_3d, box[:-3],
+                                  ], axis=-1)
             annotation.append(ann)
             ann_cata.append(cate)
-            rotated_corners.append(rotated_corner)
 
         if len(annotation) > 0:
             annotation = np.stack(annotation, axis=0)
-            annotation = uf.convert_box_format_tlbr_to_yxhw(annotation)
-            rotated_corners = np.stack(rotated_corners, axis=0)
+            annotation[:,3:] = uf.convert_box_format_tlbr_to_yxhw(annotation[:,3:])
             return annotation, ann_cata, rotated_corners
         return None, None, None
 
-    def convert_3d_to_bev(self, box, calib, plane_model):
+    def convert_3d_to_bev(self, box, calib):
+        center = box[3:6]
+        hwl = box[0:3]
+        center[1] = center[1] - hwl[0]/2
         pts_3d_ref = np.transpose(np.dot(np.linalg.inv(calib.R0), np.transpose(box[3:6][np.newaxis, ...])))
         n = pts_3d_ref.shape[0]
         pts_3d_ref = np.hstack((pts_3d_ref, np.ones((n, 1))))
-        he = np.array([0, 0, plane_model[3]*3/2]).reshape([1, 3])
-        centroid = np.dot(pts_3d_ref, np.transpose(calib.C2V)) + he
+        # he = np.array([0, 0, plane_model[3] * 3 / 2]).reshape([1, 3])
+        centroid = np.dot(pts_3d_ref, np.transpose(calib.C2V)) #+ he
 
         corners = du.get_box3d_corner(box[0:3])
-
+        box_3d = centroid[0]
         R = du.create_rotation_matrix([box[-1], 0, 0])
         corners = np.dot(corners, R) + centroid
         corners = np.concatenate([corners, centroid], axis=0)
@@ -87,23 +105,23 @@ class KittiBevMaker(KittiReader):
         corners = corners[mask, :]
 
         rotated_corners, normal_theta = self.get_rotation_and_normal_vector(corners, self.tilt_angle)
-        height = self.cal_height(centroid, plane_model) * 2
-        pixels = self.pixel_coordinates(rotated_corners[:, :2], self.tilt_angle)
+        # height = self.cal_height(centroid, plane_model) * 2
+        pixels = self.pixel_coordinates(rotated_corners[:, :2])
 
         imshape = [self.img_shape[0], self.img_shape[1], 3]
         valid_mask = (pixels[:, 0] >= 0) & (pixels[:, 0] < imshape[0] - 1) & \
                      (pixels[:, 1] >= 0) & (pixels[:, 1] < imshape[1] - 1)
         pixels = pixels[valid_mask, :]
         if pixels.size < 18:
-            return np.array([0, 0, 0, 0, 0, 0, 0]), rotated_corners
+            return np.array([0, 0, 0, 0]), box_3d, rotated_corners
             # return False
         xmin = np.min(pixels[:, 1])
         xmax = np.max(pixels[:, 1])
         ymin = np.min(pixels[:, 0])
         ymax = np.max(pixels[:, 0])
-        height = height[0, 0]
-        ann = np.array([ymin, xmin, ymax, xmax, rotated_corners[-1, 1],  rotated_corners[-1, 0], height])
-        return ann, rotated_corners
+        # height = height[0, 0]
+        ann = np.array([ymin, xmin, ymax, xmax])
+        return ann, box_3d, rotated_corners
 
     def get_ground_plane(self, points):
         points_vaild = (points[:, 2] < -1.0)  # & (points[:, 2] < -1.5)
@@ -116,27 +134,8 @@ class KittiBevMaker(KittiReader):
         assert np.arccos(np.abs(plane_model[2])) < np.pi / 12
         return plane_model
 
-    def get_points_with_hrn(self, point_cloud, plane_model, tilt_angle):
-        mask = (point_cloud[:, 0] > self.xy_range[0]) & \
-               (point_cloud[:, 0] < self.xy_range[1]) & \
-               (point_cloud[:, 1] > self.xy_range[2]) & \
-               (point_cloud[:, 1] < self.xy_range[3])
-        point_cloud = point_cloud[mask, :]
-        points = point_cloud[:, :3]
-        lidar_height = plane_model[3]
-        points[:, 2] += lidar_height
-        
-        tilted_points, normal_theta = self.get_rotation_and_normal_vector(points, tilt_angle)
-        height = self.cal_height(points, tilt_angle)
-        reflence = point_cloud[:, 3:4]
-
-        # point_cloud_hrn shape : (N,6) :[tilted_points(x,y,z), points_z, reflence, normal_theta]
-        point_cloud_hrn = np.concatenate([tilted_points, height, reflence, normal_theta], axis=1)
-        return point_cloud_hrn
-
     def get_rotation_and_normal_vector(self, points, tilt_angle):
         """
-
         :param points: velodyne_points
         :param tilt_angle: axis-y rotation angle
         :return:
@@ -146,7 +145,7 @@ class KittiBevMaker(KittiReader):
         pcd.points = o3d.utility.Vector3dVector(points)
         search_param = o3d.geometry.KDTreeSearchParamHybrid(radius=np.pi, max_nn=5)
         pcd.estimate_normals(search_param)
-        points_normals = np.asarray(pcd.normals)  #[:, 0:3:2]
+        points_normals = np.asarray(pcd.normals)  # [:, 0:3:2]
         normal_theta = np.arctan2(points_normals[:, 0], points_normals[:, 2])
         normal_theta = normal_theta % (2 * np.pi)
         normal_theta = normal_theta[..., np.newaxis]
@@ -167,7 +166,7 @@ class KittiBevMaker(KittiReader):
         height = height[..., np.newaxis]
         return height
 
-    def pixel_coordinates(self, tilted_points, tilt_angle):
+    def pixel_coordinates(self, tilted_points):
         """
 
         :param tilted_points: tilted_points(x,y)
@@ -235,40 +234,65 @@ def save_txt(save_dirctory, lines, file_name):
 def make_kitti_to_bev():
     path = cfg3d.Datasets.Kittibev.PATH
     tilt_angle = cfg3d.Datasets.Kittibev.TILT_ANGLE
-    save_path = '/media/cheetah/IntHDD/kim_result'
-
+    save_path = '/media/cheetah/IntHDD/kim_result7'
+    split = "train"
     deg = int(tilt_angle * (180 / np.pi))
     print(deg)
-    bev_make = KittiBevMaker(path, "all", cfg3d.Datasets.Kittibev)
-    save_path_deg = os.path.join(save_path, 'deg_' + str(deg))
-    save_image_path = save_path_deg + '/image_2'
-    save_label_path = save_path_deg + '/label_2'
+    bev_make = KittiBevMaker(path, split, cfg3d.Datasets.Kittibev)
+    save_path_deg = os.path.join(save_path, f'deg_{deg}', split)
+    save_image_path = save_path_deg + '/image'
+    save_label_path = save_path_deg + '/label'
+    save_test_path = save_path_deg + '/test'
 
     os.makedirs(save_image_path, exist_ok=True)
     os.makedirs(save_label_path, exist_ok=True)
+    os.makedirs(save_test_path, exist_ok=True)
     num_frame = bev_make.num_frames()
 
     for i in range(num_frame):
         image_file = bev_make.frame_names[i]
         file_num = image_file.split('/')[-1].split('.')[0]
-        image, _ = bev_make.get_bev_image(i)
+        save_image_file = os.path.join(save_image_path, f"{file_num}.png")
+        save_test_file = os.path.join(save_test_path, f"{file_num}.png")
+        if os.path.isfile(save_image_file):
+            continue
+        image, rotated = bev_make.get_bev_image(i)
 
-        bev_box, category, _ = bev_make.get_bev_box(i)
+        bev_box, category, rotated_box = bev_make.get_bev_box(i)
+
         if bev_box is None:
             continue
+
+        # pcd = o3d.geometry.PointCloud()
+        # pcd.points = o3d.utility.Vector3dVector(rotated_box)
+        # pcd.paint_uniform_color([1, 0.706, 0])
+        # pcd2 = o3d.geometry.PointCloud()
+        # pcd2.points = o3d.utility.Vector3dVector(rotated[:,:3])
+        # pcd2.paint_uniform_color([0, 0, 1])
+        # mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=6)
+        # o3d.visualization.draw_geometries([pcd,pcd2, mesh_frame],
+        #                                   zoom=0.3412,
+        #                                   front=[0.0, -0.0, 1.0],
+        #                                   lookat=[0.0, 0.0, 0.0],
+        #                                   up=[-0.0694, -0.9768, 0.2024],
+        #                                   point_show_normal=False)
+
+
         line = []
         for cate, box in zip(category, bev_box):
             box = box.astype(np.str)
             box = np.insert(box, 0, cate)
             line.append(box)
-        save_image_file = os.path.join(save_image_path, f"{file_num}.png")
-        bev_box = uf.convert_box_format_yxhw_to_tlbr(bev_box)
-        image_view = du.draw_box(image, bev_box)
-        cv2.imshow("ets",image_view)
-        cv2.waitKey(100)
+
+        bev_box = uf.convert_box_format_yxhw_to_tlbr(bev_box[:, 3:])
+        image_view = du.draw_box(image, bev_box, False)
+        # cv2.imshow("ets", image_view)
+        # cv2.waitKey(10)
+
         cv2.imwrite(save_image_file, image)
+        cv2.imwrite(save_test_file, image_view)
         save_txt(save_label_path, line, file_num)
-        uf.print_progress(f"{i}/{num_frame} deg {deg}")
+        uf.print_progress(f"{i}/{num_frame} deg {deg} save_path: {save_path} split: {split} file_num: {file_num}")
 
 
 if __name__ == '__main__':

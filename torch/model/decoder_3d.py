@@ -45,8 +45,9 @@ class FeatureDecoder3D(nn.Module):
         """
         decoded = {key: [] for key in feature.keys()}
         for scale_index in range(self.num_scale):
-            decoded["xyz"].append(self.decode_xyz(feature["xyz"][scale_index], box_2d[scale_index]))
-            decoded["lwh"].append(self.decode_lwh(feature["lwh"][scale_index]))
+
+            decoded["hwl"].append(self.decode_hwl(feature["hwl"][scale_index]))
+            decoded["lxyz"].append(self.decode_xyz(feature["lxyz"][scale_index], box_2d[scale_index], decoded["hwl"][scale_index]))
             decoded["theta"].append(
                 mu3d.sigmoid_with_margin(feature["theta"][scale_index], 0, 0, 1) * (torch.pi / 2))
             decoded["category"].append(torch.sigmoid(feature["category"][scale_index]))
@@ -55,7 +56,7 @@ class FeatureDecoder3D(nn.Module):
             assert decoded["whole"][scale_index].shape == feature["whole"][scale_index].shape
         return decoded
 
-    def decode_xyz(self, xyz_raw, box_2d):
+    def decode_xyz(self, xyz_raw, box_2d, hwl_dec):
 
         x_raw, y_raw, z_raw = torch.split(xyz_raw, [1, 1, 1], dim=1)
         yx_raw = torch.cat([y_raw, x_raw], dim=1)
@@ -67,67 +68,61 @@ class FeatureDecoder3D(nn.Module):
                  - tilt_xy[:, :1, ...] * torch.tan(self.tilt)
         tilt_xyz = torch.cat([tilt_xy, tilt_z], dim=1).reshape((xyz_raw.shape[0], 3, -1))
         xyz_dec = torch.matmul(self.rotation_matric, tilt_xyz).reshape(xyz_raw.shape)
+        # xyz_dec_np = xyz_dec.detach().cpu().numpy()
+        # xyz_dec[:, 2,...] = xyz_dec[:, 2,...]# - hwl_dec[:,0,...]/2
+        # xyz_dec___np = xyz_dec.detach().cpu().numpy()
+        # xyz_dec = xyz_dec -
         return xyz_dec
 
-    def decode_lwh(self, lwh_raw):
+    def decode_hwl(self, hwl_raw):
         """
         :param lw_raw: (batch, grid_h, grid_w, anchor, 3)
          :return: hw_dec = heights and widths of boxes in ratio to image (batch, grid_h, grid_w, anchor, 3)
         """
-        lwh_raw = torch.clamp(lwh_raw, max=_DEFAULT_SCALE_CLAMP, min=-_DEFAULT_SCALE_CLAMP)
-        return torch.exp(lwh_raw) * self.anchors_tf
+        hwl_raw = torch.clamp(hwl_raw, max=_DEFAULT_SCALE_CLAMP, min=-_DEFAULT_SCALE_CLAMP)
+        return torch.exp(hwl_raw) * self.anchors_tf
 
     def inverse(self, feature, box_2d):
         encoded = {key: [] for key in feature.keys()}
         for scale_index in range(self.num_scale):
             # box_2d_np = box_2d[scale_index].detach().cpu().numpy()
             # xyz_np = feature["xyz"][scale_index].detach().cpu().numpy()
-            valid_mask = feature["xyz"][scale_index][:, :1, ...] > 0
+            valid_mask = feature["lxyz"][scale_index][:, :1, ...] > 0
             # encoded["xyz"].append(self.encode_xyz(feature["xyz"][scale_index], box_2d[scale_index]) * valid_mask)
-            encoded["lwh"].append(self.encode_lwh(feature["lwh"][scale_index]) * valid_mask)
+            encoded["hwl"].append(self.encode_hwl(feature["hwl"][scale_index]) * valid_mask)
             # encoded["theta"].append(mu3d.inv_sigmoid_with_margin(feature["theta"][scale_index], self.margin) * (
             #             2 / torch.pi)* valid_mask)
             # encoded["category"].append(mu3d.inv_sigmoid_with_margin(feature["category"][scale_index])* valid_mask)
             # bbox_pred = [encoded[key][scale_index] for key in self.channel_compos]
             # encoded["whole"].append(torch.cat(bbox_pred, dim=1))
             # assert encoded["xyz"][scale_index].shape == feature["xyz"][scale_index].shape
-            # assert encoded["lwh"][scale_index].shape == feature["lwh"][scale_index].shape
+            # assert encoded["hwl"][scale_index].shape == feature["hwl"][scale_index].shape
             # assert encoded["theta"][scale_index].shape == feature["theta"][scale_index].shape
         return encoded
 
-    def encode_xyz(self, xyz_dec, box_2d):
+    def encode_lxyz(self, lxyz_dec, box_2d):
         """
         :param yx_dec: (batch, grid_h, grid_w, anchor, 2)
         :return: yx_raw = yx logit (batch, grid_h, grid_w, anchor, 2)
         """
 
         box_2d_np = box_2d.detach().cpu().numpy()
-        batch, channel, anchor, h, w = xyz_dec.shape
-        xyz_dec = xyz_dec.reshape(batch, channel, -1)
-        xyz_dec_np = xyz_dec.detach().cpu().numpy()
+        batch, channel, anchor, h, w = lxyz_dec.shape
+        lxyz_dec = lxyz_dec.reshape(batch, channel, -1)
         # box_2d = box_2d.reshape(batch, channel + 1, -1)
-        tilt_xyz = torch.matmul(self.rotation_matric.permute(0, 2, 1), xyz_dec).reshape(xyz_dec.shape)
-        tilt_xy = tilt_xyz[:, :2, ...].reshape(batch, 2, anchor, h, w)
-        tilt_z = tilt_xyz[:, 2:3, ...].reshape(batch, 1, anchor, h, w)
-        tilt_xyz_np = tilt_xyz.detach().cpu().numpy()
-        z_raw = (tilt_z + tilt_xy[:, :1, ...] * torch.tan(self.tilt)) * torch.cos(self.tilt)
-        z_raw_np = z_raw.detach().cpu().numpy()
-        z_raw = mu3d.inv_sigmoid_with_margin(z_raw, 0, -1, 3)
-        z_raw2_np = z_raw.detach().cpu().numpy()
-        yx_dec = - tilt_xy/(self.cell_size * self.image_shape)
-        yx_dec_np = yx_dec.detach().cpu().numpy()
-        yx_img = yx_dec + self.new_tensor
-        yx_img_np = yx_img.detach().cpu().numpy()
-        yx_img = torch.nan_to_num((yx_img - box_2d[:, :2, ...]) /  box_2d[:, 2:4, ...],nan=0, posinf=0,neginf=0)
-        yx_img2_np = yx_img.detach().cpu().numpy()
-        yx_raw = torch.arctanh(yx_img)
-        yx_raw_np = yx_raw.detach().cpu().numpy()
-        y_raw, x_raw = torch.split(yx_raw, [1, 1], dim=1)
-        y_raw_np = y_raw.detach().cpu().numpy()
-        x_raw_np = x_raw.detach().cpu().numpy()
-        xyz_raw = torch.cat([x_raw, y_raw, z_raw], dim=1)
-        xyz_raw_np = xyz_raw.detach().cpu().numpy()
-        return torch.nan_to_num(xyz_raw)
+        tilt_lxyz = torch.matmul(self.rotation_matric.permute(0, 2, 1), lxyz_dec).reshape(lxyz_dec.shape)
+        tilt_lxy = tilt_lxyz[:, :2, ...].reshape(batch, 2, anchor, h, w)
+        tilt_lz = tilt_lxyz[:, 2:3, ...].reshape(batch, 1, anchor, h, w)
+        lz_raw = (tilt_lz + tilt_lxy[:, :1, ...] * torch.tan(self.tilt)) * torch.cos(self.tilt)
 
-    def encode_lwh(self, lwh_dec):
-        return torch.nan_to_num(torch.log(lwh_dec * self.anchors_tf))
+        lz_raw = mu3d.inv_sigmoid_with_margin(lz_raw, 0, -1, 3)
+        lyx_dec = - tilt_lxy/(self.cell_size * self.image_shape)
+        lyx_img = lyx_dec + self.new_tensor
+        lyx_img = torch.nan_to_num((lyx_img - box_2d[:, :2, ...]) /  box_2d[:, 2:4, ...],nan=0, posinf=0,neginf=0)
+        lyx_raw = torch.arctanh(lyx_img)
+        ly_raw, lx_raw = torch.split(lyx_raw, [1, 1], dim=1)
+        lxyz_raw = torch.cat([lx_raw, ly_raw, lz_raw], dim=1)
+        return torch.nan_to_num(lxyz_raw)
+
+    def encode_hwl(self, hwl_dec):
+        return torch.nan_to_num(torch.log(hwl_dec * self.anchors_tf))

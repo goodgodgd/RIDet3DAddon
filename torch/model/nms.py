@@ -50,7 +50,6 @@ class NonMaximumSuppression:
             pred_2d = self.merged_scale(pred_2d)
             pred_3d = self.merged_scale(pred_3d)
 
-
         boxes = uf.convert_box_format_yxhw_to_tlbr(pred_2d["yxhw"])  # (batch, N, 4)
         categories = torch.argmax(pred_2d["category"], dim=-1)  # (batch, N)
         best_probs, best_probs_index = torch.max(pred_2d["category"], dim=-1)  # (batch, N)
@@ -81,22 +80,26 @@ class NonMaximumSuppression:
         batch_indices = [torch.concat(ctgr_indices, dim=-1) for ctgr_indices in batch_indices]
         batch_indices = torch.stack(batch_indices, dim=0)  # (batch, K*max_output)
         batch_indices = torch.maximum(batch_indices, torch.zeros_like(batch_indices))
-        batch_indices_np = batch_indices.cpu().detach().numpy()
 
         # list of (batch, N) -> (batch, N, 4)
         categories = categories.to(dtype=torch.float32)
         # "bbox": 4, "object": 1, "category": 1, "minor_ctgr": 1, "distance": 1, "score": 1, "anchor_inds": 1
         result2d = torch.stack([objectness, categories, best_probs, scores, anchor_inds], dim=-1)
         result2d = torch.concat([pred_2d["yxhw"], result2d], dim=-1)  # (batch, N, 10)
+
+        result2d_valid = result2d[..., -2:-1] > min(self.score_thresh)
+        result2d = result2d * result2d_valid
         batch_indices_2d = batch_indices[..., None].expand(batch, sum(self.max_out[1:]), result2d.shape[-1])
 
         result2d = torch.gather(result2d, 1, batch_indices_2d)  # (batch, K*max_output, 10)
 
-        valid_mask = result2d[...,7]> 1e-05
+        valid_mask = result2d[..., 7] > 1e-05
         result2d = result2d * valid_mask[..., None]  # (batch, K*max_output, 10)
 
-        result3d = torch.concat([pred_3d[key] for key in pred_3d.keys() if key is not "whole"], dim=-1)
-        batch_indices_3d = batch_indices[..., None].expand(batch, sum(self.max_out), result3d.shape[-1])
+        result3d = torch.concat([pred_3d["lxyz"], pred_3d["hwl"], pred_3d["theta"], categories[..., None]], dim=-1)
+        result3d = result3d * result2d_valid
+        # result3d = torch.concat([pred_3d[key] for key in pred_3d.keys() if key is not "whole"], dim=-1)
+        batch_indices_3d = batch_indices[..., None].expand(batch, sum(self.max_out[1:]), result3d.shape[-1])
         result3d = torch.gather(result3d, 1, batch_indices_3d)  # (batch, K*max_output, 10)
         result3d = result3d * valid_mask[..., None]
 

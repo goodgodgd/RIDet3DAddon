@@ -281,3 +281,4 @@ def _get_boxes_contour(length, width, center_x, center_y, rotation_z_radians):
             rotation_z_radians=rotation_z_radians[i])
         contours.append(contour)
     return contours
+

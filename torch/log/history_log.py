@@ -21,10 +21,10 @@ class HistoryLog:
             result[key] = log_object(grtr, pred, loss)
         num_ctgr = pred["feat2d"]["category"][0].shape[-1]
         metric = count_true_positives(grtr["inst2d"], pred["inst2d"], num_ctgr)
-        # metric_3d = count_true_positives_3d(grtr["inst3d"], pred["inst3d"], grtr["inst2d"]["object"], num_ctgr)
+        metric_3d = count_true_positives_3d(grtr["inst3d"], pred["inst3d"], grtr["inst2d"]["object"], cfg3d.Validation.TP_IOU_THRESH)
         result.update({"total_loss": total_loss.cpu().detach().numpy()})
         result.update(metric)
-        # result.update(metric_3d)
+        result.update(metric_3d)
         self.data = self.data.append(result, ignore_index=True)
 
     def create_loggers(self, columns):
@@ -55,15 +55,15 @@ class HistoryLog:
     def make_summary(self, epoch_time):
         mean_result = self.data.mean(axis=0).to_dict()
         sum_result = self.data.sum(axis=0).to_dict()
-        sum_result = {"recall": sum_result["trpo"] / (sum_result["grtr"] + 1e-5),
-                      "precision": sum_result["trpo"] / (sum_result["pred"] + 1e-5)}
-        metric_keys = ["trpo", "grtr", "pred"]
         # sum_result = {"recall": sum_result["trpo"] / (sum_result["grtr"] + 1e-5),
-        #               "precision": sum_result["trpo"] / (sum_result["pred"] + 1e-5),
-        #               "recall3d": sum_result["trpo3d"] / (sum_result["grtr3d"] + 1e-5),
-        #               "precision3d": sum_result["trpo3d"] / (sum_result["pred3d"] + 1e-5)
-        #               }
-        # metric_keys = ["trpo", "grtr", "pred", "trpo3d", "grtr3d", "pred3d"]
+        #               "precision": sum_result["trpo"] / (sum_result["pred"] + 1e-5)}
+        metric_keys = ["trpo", "grtr", "pred"]
+        sum_result = {"recall": sum_result["trpo"] / (sum_result["grtr"] + 1e-5),
+                      "precision": sum_result["trpo"] / (sum_result["pred"] + 1e-5),
+                      "recall3d": sum_result["trpo3d"] / (sum_result["grtr3d"] + 1e-5),
+                      "precision3d": sum_result["trpo3d"] / (sum_result["pred3d"] + 1e-5)
+                      }
+        metric_keys = ["trpo", "grtr", "pred", "trpo3d", "grtr3d", "pred3d"]
         summary = {key: val for key, val in mean_result.items() if key not in metric_keys}
         summary.update(sum_result)
         summary["time_m"] = round(epoch_time, 5)

@@ -38,14 +38,15 @@ class TrainValBase:
         steps = len(train_loader_iter)
         for step in range(steps):
             start = timer()
-            features_ = self.to_device(next(train_loader_iter))
+            features = self.to_device(next(train_loader_iter))
 
-            features = features_.copy()
-            frame_names = features['frame_names']
-            del features["frame_names"]
-            prediction, total_loss, loss_by_type, new_features = self.run_batch(features)
+            # features = features_.copy()
+            # frame_names = features['frame_names']
+            # del features["frame_names"]
+            (prediction, total_loss, loss_by_type, new_features), frame_names = self.run_batch(features)
             start_log = timer()
             new_features["frame_names"] = frame_names
+
             logger.log_batch_result(step, new_features, prediction, total_loss, loss_by_type)
             print_loss = ""
             for key in loss_by_type.keys():
@@ -95,37 +96,47 @@ class TrainValBase:
 
 
 class ModelTrainer(TrainValBase):
-    def __init__(self, model, loss_object, optimizer, epoch_steps, feature_creator, ckpt_path):
+    def __init__(self, model, loss_object, optimizer, epoch_steps, feature_creator, augmentation, ckpt_path):
         super().__init__(model, loss_object, optimizer, epoch_steps, feature_creator, ckpt_path)
         self.split = "train"
         self.is_train = True
-        # self.visual_log2d = vl3d.VisualLog2d(ckpt_path,epoch_steps)
+        self.augmentation = augmentation
+        self.visual_log2d = vl3d.VisualLog2d(ckpt_path,epoch_steps)
+        self.visual_log3d = vl3d.VisualLog3d(ckpt_path,epoch_steps)
 
     def run_batch(self, features):
+        # features_ = features.copy()
+        frame_names = features['frame_names']
+        del features["frame_names"]
+        features = self.augmentation(features)
         features = self.feature_creator(features)
-
-
-        # for i in range(features["image"].shape[0]):
-        #     inst_image = features["image"][i].copy()
-        #     inst_image = self.visual_log2d.draw_boxes(inst_image, features["inst2d"], i, (255, 0, 0))
+        frame_names = [frame_names[0], frame_names[0], frame_names[1], frame_names[1]]
+        #
+        # features = uf.convert_to_tensor(features, "float32", True)
+        # features_np = uf.convert_tensor_to_numpy(features)
+        # for i in range(features_np["image"].shape[0]):
+        #     inst_image = features_np["image"][i].copy().astype(np.uint8)
+        #     inst_image = self.visual_log2d.draw_boxes(inst_image, features_np["inst2d"], i, (255, 0, 0))
         #     # image = self.visual_log2d.draw_lanes(image, features["inst_lane"], i, (255, 0, 255))
         #     feat = []
         #     for scale in range(3):
-        #         feature = features["feat2d"]["whole"][scale][i]
-        #         test = feature[4,...] > 0
-        #         feature = feature[:,feature[4, ...] > 0]
+        #         feature = features_np["feat2d"]["whole"][scale][i]
+        #         test = feature[:,4] > 0
+        #         feature = feature[feature[:,4] > 0]
         #         feat.append(feature)
-        #     feat_boxes = np.concatenate(feat, axis=-1)
-        #     feat_boxes = uf.convert_box_format_yxhw_to_tlbr(feat_boxes.T)
+        #     feat_boxes = np.concatenate(feat, axis=0)
+        #     feat_boxes = uf.convert_box_format_yxhw_to_tlbr(feat_boxes)
         #     if len(feat_boxes) == 0:
         #         feat_boxes = np.array([[0, 0, 0, 0]], dtype=np.float32)
-        #     feat_image = features["image"][i].copy()
-        #     feat_image = du3d.draw_box(feat_image, feat_boxes)
+        #     feat_image = features_np["image"][i].copy().astype(np.uint8)
+        #     feat_image = du3d.draw_box(feat_image, feat_boxes,True)
         #     total_image = np.concatenate([feat_image, inst_image], axis=0)
         #     cv2.imshow("test", total_image)
         #     cv2.waitKey(0)
+        #
+        #
 
-        return self.run_step(features)
+        return self.run_step(features), frame_names
 
     def run_step(self, features):
         features = uf.convert_to_tensor(features, "float32", True)
@@ -149,11 +160,14 @@ class ModelValidater(TrainValBase):
         self.is_train = False
 
     def run_batch(self, features):
+        frame_names = features['frame_names']
+        del features["frame_names"]
         features = self.feature_creator(features)
 
-        return self.run_step(features)
+        return self.run_step(features) , frame_names
 
     def run_step(self, features):
+
         features = uf.convert_to_tensor(features, "float32", True)
         input_image = self.permute_channel(features['image'])
         prediction = self.model(input_image)

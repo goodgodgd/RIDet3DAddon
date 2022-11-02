@@ -2,20 +2,25 @@ import numpy as np
 import os.path as op
 import pandas as pd
 import os
+import glob
+import cv2
 from timeit import default_timer as timer
 
 from RIDet3DAddon.torch.log.exhaustive_log import ExhaustiveLog
 from RIDet3DAddon.torch.log.history_log import HistoryLog
 from RIDet3DAddon.torch.log.visual_log import VisualLog2d, VisualLog3d
+from dataloader.readers.kitti_reader import SensorConfig
 import utils.torch.util_function as uf
 import RIDet3DAddon.torch.model.nms as nms
 import RIDet3DAddon.torch.config as cfg3d
 import RIDet3DAddon.torch.config_dir.util_config as uc3d
+from RIDet3DAddon.torch.log.save_pred import SavePred
 
 
 class Logger:
     def __init__(self, visual_log, exhaustive_log, loss_names, ckpt_path, epoch, is_train, val_only):
         self.history_logger = HistoryLog(loss_names)
+        self.save_pred = SavePred(op.join(ckpt_path, "result"))
         self.exhaustive_logger = ExhaustiveLog(loss_names) if exhaustive_log else None
         self.visual_logger_2d = VisualLog2d(ckpt_path, epoch) if visual_log else None
         self.visual_logger_3d = VisualLog3d(ckpt_path, epoch) if visual_log else None
@@ -30,6 +35,7 @@ class Logger:
         self.epoch = epoch
         self.ckpt_path = ckpt_path
         self.val_only = val_only
+        self.orgin_path = cfg3d.Datasets.DATASET_CONFIG.ORIGIN_PATH
 
     def log_batch_result(self, step, grtr, pred, total_loss, loss_by_type):
         self.check_nan(grtr, "grtr")
@@ -38,15 +44,13 @@ class Logger:
         nms_2d_box, nms_3d_box = self.nms(pred)
         pred["inst2d"] = uf.slice_feature(nms_2d_box, uc3d.get_bbox_composition(False), -1)
         pred["inst3d"] = uf.slice_feature(nms_3d_box, uc3d.get_3d_bbox_composition(False), -1)
-
         # pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
-
         for key, feature_slices in grtr.items():
             grtr[key] = uf.convert_tensor_to_numpy(feature_slices)
         for key, feature_slices in pred.items():
             pred[key] = uf.convert_tensor_to_numpy(feature_slices)
         loss_by_type = uf.convert_tensor_to_numpy(loss_by_type)
-
+        pred["inst3d"]["cxyz"] = self.velo_to_cam(pred["inst3d"], grtr["frame_names"])
         if step == 0 and self.epoch == 0:
             structures = {"grtr": grtr, "pred": pred, "loss": loss_by_type}
             self.save_model_structure(structures)
@@ -60,6 +64,8 @@ class Logger:
             # nms_3d_box = self.nms(pred, is_3d=True)
             self.visual_logger_2d(step, grtr, pred)
             self.visual_logger_3d(step, grtr, pred)
+            if self.val_only:
+                self.save_pred(step, grtr, pred)
 
     def check_nan(self, features, feat_name):
         valid_result = True
@@ -80,6 +86,41 @@ class Logger:
                 print(f"nan {feat_name}:", np.quantile(features, np.linspace(0, 1, self.num_channel)))
                 valid_result = False
         assert valid_result
+
+
+    def camera_2_velo(self, centroid, calib, plane_model):
+        pts_3d_ref = np.transpose(np.dot(np.linalg.inv(calib.R0), np.transpose(centroid[np.newaxis, ...])))
+        n = pts_3d_ref.shape[0]
+        pts_3d_ref = np.hstack((pts_3d_ref, np.ones((n, 1))))
+        he = np.array([0, 0, plane_model[3] * 3 / 2]).reshape([1, 3])
+        centroid = np.dot(pts_3d_ref, np.transpose(calib.C2V)) + he
+        return centroid
+
+    def velo_to_cam(self, pred, frame_names):
+        batch_cxyz = []
+        for i in range(pred["lxyz"].shape[0]):
+            frame_num = frame_names[i].split("/")[-1]
+            origin_file = os.path.join(self.orgin_path, f"{frame_num}")
+            calib_file = origin_file.replace("image_2", "calib").replace("png", "txt")
+            calib = SensorConfig(calib_file)
+            cxyz = calib.project_velo_to_rect(pred["lxyz"][i])
+            batch_cxyz.append(cxyz)
+        return np.stack(batch_cxyz, axis=0)
+
+    def cam_to_velo(self, pred, frame_names):
+        batch_cxyz = []
+        for i in range(len(frame_names)):
+            frame_num = frame_names[i].split("/")[-1]
+            origin_file = os.path.join(self.orgin_path, f"{frame_num}")
+            calib_file = origin_file.replace("image_2", "calib").replace("png", "txt")
+            calib = SensorConfig(calib_file)
+            cxyz = calib.project_rect_to_velo(pred["cxyz"][i])
+            batch_cxyz.append(cxyz)
+        return np.stack(batch_cxyz, axis=0)
+
+        # divider = np.array([[origin_image.shape[1]], [origin_image.shape[0]], [1]])
+        # P2 /= divider
+        return calib
 
     def finalize(self, start):
         self.history_logger.finalize(start)

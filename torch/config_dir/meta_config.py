@@ -6,11 +6,10 @@ import RIDet3DAddon.torch.config_dir.parameter_pool as params
 
 class Paths:
     RESULT_ROOT = "/home/cheetah/kim_workspace"
-    DATAPATH = "/media/cheetah/IntHDD/kim_result/deg_59/image_2"
+    DATAPATH = "/media/cheetah/IntHDD/kim_result7/deg_0"
     CHECK_POINT = op.join(RESULT_ROOT, "ckpt")
     CONFIG_FILENAME = '/home/cheetah/kim_workspace/new/RILabDetector_torch/RIDet3DAddon/torch/config.py'
     META_CFG_FILENAME = '/home/cheetah/kim_workspace/new/RILabDetector_torch/RIDet3DAddon/torch/config_dir/meta_config.py'
-
 
 
 class Datasets:
@@ -18,20 +17,20 @@ class Datasets:
 
     class Kittibev:
         NAME = "kitti_bev"
-        PATH = "/media/cheetah/IntHDD/datasets/kitti/data_object_image_2/train"
-        ORIGIN_PATH = "/media/cheetah/IntHDD/datasets/kitti/data_object_image_2"
+        PATH = "/media/cheetah/IntHDD/datasets/kitti_detection/data_object_image_2/training"
+        ORIGIN_PATH = "/media/cheetah/IntHDD/datasets/kitti_detection/data_object_image_2/training/image_2"
 
-        CATEGORIES_TO_USE = ["Person", "Car",  "Bicycle", "DontCare"]
+        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist", "Don't Care"]
         CATEGORY_REMAP = {}
         # CATEGORIES_TO_USE = ["Pedestrian", "Car", "Van", "Truck", "Cyclist", "DontCare",  "Person_sitting"]
-        # CATEGORY_REMAP = {"Pedestrian": "Person", "Person_sitting": "Person"}
+        # CATEGORY_REMAP = {}
 
         CROP_TLBR = [0, 0, 0, 0]
         INCLUDE_LANE = [True, False][1]
         # meter per pixel
         CELL_SIZE = params.KittiBEVParam.Deg.CELL_SIZE
         POINT_XY_RANGE = params.KittiBEVParam.Deg.POINT_XY_RANGE
-        TILT_ANGLE =  params.KittiBEVParam.Deg.TILT_ANGLE
+        TILT_ANGLE = params.KittiBEVParam.Deg.TILT_ANGLE
         INPUT_RESOLUTION = params.KittiBEVParam.Deg.INPUT_RESOLUTION
 
     # TARGET_DATASET = "Uplus"
@@ -60,15 +59,19 @@ class ModelOutput:
     GRTR_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
     PRED_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
-    GRTR_3D_MAIN_COMPOSITION = {"xyz": 3, "lwh": 3, "theta": 1, "category": 1,
+    # GRTR_3D_MAIN_COMPOSITION = {"xyz": 3, "hwl": 3, "theta": 1, "category": 1,
+    #                             "anchor_id": 1
+    #                             }
+    GRTR_3D_MAIN_COMPOSITION = {"lxyz": 3, "hwl": 3, "cxyz": 3, "theta": 1, "category": 1,
+
                                 "anchor_id": 1
                                 }
     PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition()
 
     PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(True)
 
-    GRTR_3D_NMS_COMPOSITION = {"xyz": 3, "lwh": 3, "theta": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"xyz": 3, "lwh": 3, "theta": 1, "category": 4}
+    GRTR_3D_NMS_COMPOSITION = {"lxyz": 3, "hwl": 3, "cxyz": 3, "theta": 1, "category": 1}
+    PRED_3D_NMS_COMPOSITION = {"lxyz": 3, "hwl": 3,  "theta": 1, "category": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
@@ -100,26 +103,27 @@ class Train:
     TRAINING_PLAN = params.TrainingPlan.KITTIBEV_SIMPLE
     PIXEL_MEAN = [0.0, 0.0, 0.0]
     PIXEL_STD = [1.0, 1.0, 1.0]
+    AUGMENT_PROBS = {"Flip": 1.0}
 
 
 class Validation:
     TP_IOU_THRESH = [1, 0.5, 0.5, 0.5]
     DISTANCE_LIMIT = 25
     VAL_EPOCH = "latest"
-    MAP_TP_IOU_THRESH = [0.5]
+    MAP_TP_IOU_THRESH = [0.7]
     MAX_BOX = 200
 
 
 class NmsInfer:
-    MAX_OUT = [0, 5, 8, 3]
-    IOU_THRESH = [0, 0.2, 0.2, 0.2]
-    SCORE_THRESH = [1, 0.02, 0.02, 0.02]
+    MAX_OUT = [0, 6, 11, 3]
+    IOU_THRESH = [0, 0.67, 0.67, 0.42]
+    SCORE_THRESH = [1, 0.31, 0.26, 0.16]
 
 
 class NmsOptim:
-    IOU_CANDIDATES = np.arange(0.02, 0.7, 0.05)
-    SCORE_CANDIDATES = np.arange(0.01, 0.4, 0.05)
-    MAX_OUT_CANDIDATES = np.arange(2, 20, 1)
+    IOU_CANDIDATES = np.arange(0.3, 0.7, 0.1)
+    SCORE_CANDIDATES = np.arange(0.1, 0.4, 0.05)
+    MAX_OUT_CANDIDATES = np.arange(2, 15, 1)
 
 
 class Log:
@@ -131,7 +135,9 @@ class Log:
         SUMMARY = ["pos_obj", "neg_obj"]
 
     class ExhaustiveLog:
-        DETAIL = ["pos_obj", "neg_obj", "iou_mean", "box_yx", "box_hw", "true_class", "false_class"]
-        COLUMNS_TO_MEAN = ["anchor", "ctgr", "ciou", "object", "category", "distance", "pos_obj", "neg_obj", "box_hw",
-                           "box_yx", "true_class", "false_class"]
+        DETAIL = ["pos_obj", "neg_obj", "box_yx", "box_hw", "true_class", "false_class"]
+        COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d", "category_3d", "box_3d", "theta", "pos_obj",
+                           "neg_obj", "box_hw", "box_yx", "true_class", "false_class"]
         COLUMNS_TO_SUM = ["anchor", "ctgr", "trpo", "grtr", "pred"]
+
+

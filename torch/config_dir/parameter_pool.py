@@ -70,7 +70,7 @@ class KittiBEVParam:
         #                     int((POINT_XY_RANGE[3] - POINT_XY_RANGE[2]) / CELL_SIZE),
         #                     ]
 
-    Deg = Deg60
+    Deg = Deg0
 
 
 class TrainingPlan:
@@ -85,13 +85,13 @@ class TrainingPlan:
 
 
 class TfrParams:
-    MIN_PIX = {'train': {"Bgd": 0, "Person": 0, "Car": 0, "Bicycle": 0,
+    MIN_PIX = {'train': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
                          },
-               'val': {"Bgd": 0, "Person": 0, "Car": 0, "Bicycle": 0,
-                         }
+               'val': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
+                       }
                }
 
-    CATEGORY_NAMES = {"category": ["Bgd", "Person", "Car", "Bicycle", ],
+    CATEGORY_NAMES = {"category": ["Bgd", "Pedestrian", "Car", "Cyclist", ],
                       "dont": ["Don't Care"],
                       }
 
@@ -115,7 +115,7 @@ class TrainParams:
     @classmethod
     def get_3d_pred_composition(cls, categorized=False):
         cls_composition = {"category": len(TfrParams.CATEGORY_NAMES["category"])}
-        reg_composition = {"xyz": 3, "lwh": 3, "theta": 1}
+        reg_composition = {"lxyz": 3, "hwl": 3, "theta": 1}
         composition = {"reg": reg_composition, "cls": cls_composition}
 
         if categorized:
