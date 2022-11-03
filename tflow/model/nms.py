@@ -11,11 +11,15 @@ class NonMaximumSuppression:
     def __init__(self, max_out=cfg3d.NmsInfer.MAX_OUT,
                  iou_thresh=cfg3d.NmsInfer.IOU_THRESH,
                  score_thresh=cfg3d.NmsInfer.SCORE_THRESH,
+                 iou_3d_thresh=cfg3d.NmsInfer.IOU_3D_THRESH,
+                 score_3d_thresh=cfg3d.NmsInfer.SCORE_3D_THRESH,
                  category_names=cfg3d.Dataloader.CATEGORY_NAMES["category"],
                  ):
         self.max_out = max_out
         self.iou_thresh = iou_thresh
         self.score_thresh = score_thresh
+        self.iou_3d_thresh = iou_3d_thresh
+        self.score_3d_thresh = score_3d_thresh
         self.category_names = category_names
         self.compute_iou3d = Compute3DIoU()
 
@@ -23,15 +27,17 @@ class NonMaximumSuppression:
         self.max_out = max_out if max_out is not None else self.max_out
         self.iou_thresh = iou_thresh if iou_thresh is not None else self.iou_thresh
         self.score_thresh = score_thresh if score_thresh is not None else self.score_thresh
+        self.iou_3d_thresh = self.iou_3d_thresh
+        self.score_3d_thresh = self.score_3d_thresh
 
-        nms_2d_res = self.nms2d(pred["feat2d"], merged)
-        if is_3d:
-            nms_3d_res = self.nms3d(pred["feat3d"], pred["feat2d"], merged)
-            return nms_3d_res
-        return nms_2d_res
+        nms_2d_res, nms_3d_res = self.nms2d(pred["feat2d"], pred["feat3d"], merged)
+        # if is_3d:
+        #     nms_3d_res = self.nms3d(pred["inst3d"], pred["inst2d"], merged)
+        #     return nms_3d_res
+        return nms_2d_res, nms_3d_res
 
     # @tf.function
-    def nms2d(self, pred, merged=False):
+    def nms2d(self, pred2d, pred3d, merged=False):
         """
         :param pred: if merged True, dict of prediction slices merged over scales,
                         {'yxhw': (batch, sum of Nx, 4), 'object': ..., 'category': ...}
@@ -41,24 +47,31 @@ class NonMaximumSuppression:
         :return: (batch, max_out, 8), 8: bbox, category, objectness, ctgr_prob, score
         """
         if merged is False:
-            pred = self.append_anchor_inds(pred)
-            pred = self.merged_scale(pred)
+            pred2d = self.append_anchor_inds(pred2d)
+            pred2d = self.merged_scale(pred2d)
+            pred3d = self.append_anchor_inds(pred3d)
+            pred3d = self.merged_scale(pred3d)
 
-        boxes = uf.convert_box_format_yxhw_to_tlbr(pred["yxhw"])  # (batch, N, 4)
-        categories = tf.argmax(pred["category"], axis=-1)  # (batch, N)
-        best_probs = tf.reduce_max(pred["category"], axis=-1)  # (batch, N)
-        objectness = pred["object"][..., 0]  # (batch, N)
-        scores = objectness * best_probs  # (batch, N)
-        batch, numbox, numctgr = pred["category"].shape
+        boxes_2d = uf.convert_box_format_yxhw_to_tlbr(pred2d["yxhw"])  # (batch, N, 4)
+        categories_2d = tf.argmax(pred2d["category"], axis=-1)  # (batch, N)
+        best_probs_2d = tf.reduce_max(pred2d["category"], axis=-1)  # (batch, N)
+        objectness = pred2d["object"][..., 0]  # (batch, N)
+        scores_2d = objectness * best_probs_2d  # (batch, N)
+        batch, numbox, numctgr = pred2d["category"].shape
 
-        anchor_inds = pred["anchor_ind"][..., 0]
+        anchor_inds = pred2d["anchor_ind"][..., 0]
+
+        theta = pred3d["theta"][..., 0]
+        # categories_3d = tf.argmax(pred2d["category"], axis=-1)  # (batch, N)
+        # best_probs_3d = tf.reduce_max(pred2d["category"], axis=-1)  # (batch, N)
+        # scores_3d = objectness * best_probs_3d  # (batch, N)
 
         batch_indices = [[] for i in range(batch)]
         for ctgr_idx in range(1, numctgr):
-            ctgr_mask = tf.cast(categories == ctgr_idx, dtype=tf.float32)  # (batch, N)
-            ctgr_boxes = boxes * ctgr_mask[..., tf.newaxis]  # (batch, N, 4)
+            ctgr_mask = tf.cast(categories_2d == ctgr_idx, dtype=tf.float32)  # (batch, N)
+            ctgr_boxes = boxes_2d * ctgr_mask[..., tf.newaxis]  # (batch, N, 4)
 
-            ctgr_scores = scores * ctgr_mask  # (batch, N)
+            ctgr_scores = scores_2d * ctgr_mask  # (batch, N)
             for frame_idx in range(batch):
                 selected_indices = tf.image.non_max_suppression(
                     boxes=ctgr_boxes[frame_idx],
@@ -80,14 +93,20 @@ class NonMaximumSuppression:
         batch_indices = tf.maximum(batch_indices, 0)
 
         # list of (batch, N) -> (batch, N, 4)
-        categories = tf.cast(categories, dtype=tf.float32)
+        categories_2d = tf.cast(categories_2d, dtype=tf.float32)
         # "bbox": 4, "object": 1, "category": 1, "score": 1, "anchor_inds": 1
-        result = tf.stack([objectness, categories, best_probs, scores, anchor_inds], axis=-1)
+        result_2d = tf.stack([objectness, categories_2d, best_probs_2d, scores_2d, anchor_inds], axis=-1)
+        result_2d = tf.concat([pred2d["yxhw"], pred2d["z"], result_2d], axis=-1)  # (batch, N, 10)
+        result_2d = tf.gather(result_2d, batch_indices, batch_dims=1)  # (batch, K*max_output, 10)
+        result_2d = result_2d * valid_mask[..., tf.newaxis]  # (batch, K*max_output, 10)
 
-        result = tf.concat([pred["yxhw"], result], axis=-1)  # (batch, N, 10)
-        result = tf.gather(result, batch_indices, batch_dims=1)  # (batch, K*max_output, 10)
-        result = result * valid_mask[..., tf.newaxis]  # (batch, K*max_output, 10)
-        return result
+        # categories_3d = tf.cast(categories_3d, dtype=tf.float32)
+        result_3d = tf.stack([theta, categories_2d], axis=-1)
+        # result_3d = tf.concat([pred3d["yxz"], pred3d["hwl"], result_3d], axis=-1)  # (batch, N, 11)
+        result_3d = tf.concat([pred3d["yx"], pred3d["hwl"], pred2d["z"], result_3d], axis=-1)  # (batch, N, 11)
+        result_3d = tf.gather(result_3d, batch_indices, batch_dims=1)  # (batch, K*max_output, 11)
+        result_3d = result_3d * valid_mask[..., tf.newaxis]  # (batch, K*max_output, 11)
+        return result_2d, result_3d
 
     def append_anchor_inds(self, pred):
         pred["anchor_ind"] = []

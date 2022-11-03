@@ -12,7 +12,7 @@ class FeatureEncoder:
     def inverse(self, feature):
         encoded = {"hwl": []}
         for scale_index in range(self.num_scale):
-            valid_mask = tf.cast(feature["yxz"][scale_index][..., :1] > 0, dtype=tf.float32)
+            valid_mask = tf.cast(feature["yx"][scale_index][..., :1] > 0, dtype=tf.float32)
             box_hwl_logit = self.encode_hwl(feature["hwl"][scale_index])
             encoded["hwl"].append(tf.math.multiply_no_nan(box_hwl_logit, valid_mask))
             assert encoded["hwl"][scale_index].shape == feature["hwl"][scale_index].shape

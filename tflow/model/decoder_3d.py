@@ -12,16 +12,17 @@ class FeatureDecoder:
         self.margin = cfg3d.Architecture.SIGMOID_DELTA
         self.channel_compos = channel_compos
 
-    def decode(self, feature, intrinsic, box_2d):
+    def decode(self, feature, intrinsic, feat_2d):
         decoded = {key: [] for key in feature.keys()}
         for scale_index in range(self.num_scale):
-            box_yx_2d = self.decode_yx(feature["yxz"][scale_index][..., :2], box_2d[scale_index])
+            box_yx_2d = self.decode_yx(feature["yx"][scale_index], feat_2d["yxhw"][scale_index])
             decoded["hwl"].append(self.decode_hwl(feature["hwl"][scale_index]))
-            box_z = 10 * tf.exp(feature["yxz"][scale_index][..., 2:3])
-            box_yx_3d = self.inverse_proj_to_3d(box_yx_2d, box_z, intrinsic)
-            decoded["yxz"].append(tf.concat([box_yx_3d, box_z], axis=-1))
+            # box_z = 10 * tf.exp(feature["z"][scale_index])
+            decoded["yx"].append(self.inverse_proj_to_3d(box_yx_2d, feat_2d["z"][scale_index], intrinsic))
+            # decoded["z"].append(box_z)
             decoded["theta"].append(mu.sigmoid_with_margin(feature["theta"][scale_index], self.margin) * (np.pi / 2))
-            decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
+            # TODO sum 2d category, 3d category
+            # decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
             bbox_pred = [decoded[key][scale_index] for key in self.channel_compos]
             decoded["merged"].append(tf.concat(bbox_pred, axis=-1))
             assert decoded["merged"][scale_index].shape == feature["merged"][scale_index].shape

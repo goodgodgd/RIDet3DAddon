@@ -38,13 +38,15 @@ class TrainValBase:
                               f"box={loss_by_type['box_2d']:.3f}, "
                               f"object={loss_by_type['object']:.3f}, "
                               f"category={loss_by_type['category_2d']:.3f}, "
-                              f"box_3d={loss_by_type['box_3d']:.3f}, "
+                              f"yx={loss_by_type['yx']:.3f}, "
+                              f"hwl={loss_by_type['hwl']:.3f}, "
                               f"theta={loss_by_type['theta']:.3f}, "
-                              f"category_3d={loss_by_type['category_3d']:.3f}, ")
+                              f"depth={loss_by_type['depth']:.3f}, "
+                              )
 
             if step >= self.epoch_steps:
                 break
-            # if step >= 100:
+            # if step >= 10:
             #     break
 
         print("")

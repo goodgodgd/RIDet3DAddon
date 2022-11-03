@@ -93,8 +93,12 @@ class ExhaustiveLog:
             loggers["category_2d"] = LogMeanDetailLoss("category_2d")
         if "category_3d" in columns:
             loggers["category_3d"] = LogMeanDetailLoss("category_3d")
-        if "box_3d" in columns:
-            loggers["box_3d"] = LogMeanDetailLoss("box_3d")
+        if "yx" in columns:
+            loggers["yx"] = LogMeanDetailLoss("yx")
+        if "hwl" in columns:
+            loggers["hwl"] = LogMeanDetailLoss("hwl")
+        if "yx" in columns:
+            loggers["z"] = LogMeanDetailLoss("z")
         if "theta" in columns:
             loggers["theta"] = LogMeanDetailLoss("theta")
         if "pos_obj" in columns:

@@ -103,6 +103,8 @@ def set_dataset_and_get_config(dataset):
 
 def set_anchors():
     anchor_mode = meta.AnchorGeneration.ANCHOR_STYLE
+    if anchor_mode == "Manual":
+        return None
     anchor_class = getattr(meta.AnchorGeneration, anchor_mode)
     anchor_option = dict()
     for item in dir(anchor_class):

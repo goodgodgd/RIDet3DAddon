@@ -13,7 +13,10 @@ class KittiDriveManager(DriveManagerBase):
         super().__init__(datapath, split)
 
     def list_drive_paths(self):
-        kitti_split = "training"    # if self.split == "train" else "testing"
+        if self.split == "train":
+            kitti_split = "training"    # if self.split == "train" else "testing"
+        else:
+            kitti_split = "validation"
         return [op.join(self.datapath, kitti_split, "image_2")]
 
     def get_drive_name(self, drive_index):
@@ -101,6 +104,8 @@ class KittiReader(DatasetReaderBase):
     def extract_box(self, line):
         raw_label = line.strip("\n").split(" ")
         category_name = raw_label[0]
+        # if int(raw_label[2]) > 2:
+        #     return None, None, None
         if category_name not in self.dataset_cfg.CATEGORIES_TO_USE:
             return None, None, None
         y1 = round(float(raw_label[5]))
@@ -108,17 +113,23 @@ class KittiReader(DatasetReaderBase):
         y2 = round(float(raw_label[7]))
         x2 = round(float(raw_label[6]))
 
-        h = raw_label[8]
+        h = float(raw_label[8])
         w = raw_label[9]
         l = raw_label[10]
         if (y2 - y1 < 1) or (x2 - x1 < 1):
             return None, None, None
+        # if category_name == "Car" and y2-y1 <= 40:
+        #     return None, None, None
+        # elif y2-y1 <= 25:
+        #     return None, None, None
         x3d = raw_label[11]
-        y3d = raw_label[12]
+        y3d = float(raw_label[12]) - (h/2)
         z = raw_label[13]
         theta = raw_label[14]
-        bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d, x3d, z, h, w, l, theta], dtype=np.float32)
+        # if float(z) > 50.:
+        #     return None, None, None
+        bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, z, 1], dtype=np.float32)
+        bbox_3d = np.array([y3d, x3d, h, w, l, theta], dtype=np.float32)
         return bbox_2d, bbox_3d, category_name
 
     def load_calib_data(self, file):
@@ -272,10 +283,11 @@ def test_kitti_reader():
     reader = KittiReader(drive_paths[0], "train", dataset_cfg)
     for i in range(reader.num_frames()):
         image = reader.get_image(i)
-        bboxes = reader.get_bboxes(i)
-        print(f"frame {i}, bboxes:\n", bboxes)
-        boxed_image = tu.draw_boxes(image, bboxes, dataset_cfg.CATEGORIES_TO_USE)
-        cv2.imshow("kitti", boxed_image)
+        bboxes2d, bboxes_3d, categories = reader.get_bboxes(i)
+        print(f"frame {i}, bboxes:\n", bboxes2d)
+        print(f"frame {i}, categories:\n", categories)
+        # boxed_image = tu.draw_boxes(image, bboxes, dataset_cfg.CATEGORIES_TO_USE)
+        # cv2.imshow("kitti", boxed_image)
         key = cv2.waitKey()
         if key == ord('q'):
             break

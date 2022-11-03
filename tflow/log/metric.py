@@ -111,7 +111,7 @@ def count_per_class(boxes, mask, num_ctgr):
 
 
 def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg.Validation.TP_IOU_THRESH):
-    splits = split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh)
+    splits = split_tp_fp_fn_3d(grtr, pred, iou_thresh)
     grtr_valid_tp = splits["grtr_tp"]["yxhwl"][..., 2:3] > 0
     grtr_valid_fn = splits["grtr_fn"]["yxhwl"][..., 2:3] > 0
     pred_valid_tp = splits["pred_tp"]["yxhwl"][..., 2:3] > 0
@@ -122,36 +122,42 @@ def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg.Validation.TP
     return {"trpo3d": trpo_count, "grtr3d": grtr_count, "pred3d": pred_count}
 
 
-def split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh):
-    batch, M, _ = pred["category"].shape
+def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
+    batch, M, _ = pred["inst2d"]["category"].shape
+    valid_mask = grtr["inst2d"]["object"]
+    # metric2d = split_tp_fp_fn(pred["inst2d"], grtr["inst2d"], iou_thresh)
     batch_iou = list()
     for frame_idx in range(batch):
-        iou = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["yxz"].shape[1]).astype(np.bool),
-                             np.ones(pred["yxz"].shape[1]).astype(np.bool))  # (batch, N, M)
+        iou = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["inst3d"]["yx"].shape[1]).astype(np.bool),
+                             np.ones(pred["inst3d"]["yx"].shape[1]).astype(np.bool))  # (batch, N, M)
         batch_iou.append(iou)
     batch_iou = np.stack(batch_iou, axis=0)
     best_iou = np.max(batch_iou, axis=-1)  # (batch, N)
 
     best_idx = np.argmax(batch_iou, axis=-1)  # (batch, N)
     if len(iou_thresh) > 1:
-        iou_thresh = get_iou_thresh_per_class(grtr["category"], iou_thresh)
+        iou_thresh = get_iou_thresh_per_class(grtr["inst2d"]["category"], iou_thresh)
     iou_match = best_iou > iou_thresh  # (batch, N)
 
-    pred_ctgr_aligned = numpy_gather(pred["category"], best_idx, 1)  # (batch, N, 8)
+    pred_ctgr_aligned = numpy_gather(pred["inst2d"]["category"], best_idx, 1)  # (batch, N, 8)
 
-    ctgr_match = grtr["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
+    ctgr_match = grtr["inst2d"]["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
     grtr_tp_mask = np.expand_dims(iou_match * ctgr_match, axis=-1)  # (batch, N, 1)
 
     grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
-    grtr_tp = {key: val * grtr_tp_mask for key, val in grtr.items()}
-    grtr_fn = {key: val * grtr_fn_mask for key, val in grtr.items()}
+    grtr_tp = {key: val * grtr_tp_mask for key, val in grtr["inst3d"].items()}
+    grtr_fn = {key: val * grtr_fn_mask for key, val in grtr["inst3d"].items()}
+    grtr_tp["z"] = grtr["inst2d"]["z"] * grtr_tp_mask
+    grtr_fn["z"] = grtr["inst2d"]["z"] * grtr_fn_mask
     grtr_tp["iou"] = best_iou * grtr_tp_mask[..., 0]
     grtr_fn["iou"] = best_iou * grtr_fn_mask[..., 0]
     # last dimension rows where grtr_tp_mask == 0 are all-zero
     pred_tp_mask = indices_to_binary_mask(best_idx, grtr_tp_mask, M)
     pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
-    pred_tp = {key: val * pred_tp_mask for key, val in pred.items()}
-    pred_fp = {key: val * pred_fp_mask for key, val in pred.items()}
+    pred_tp = {key: val * pred_tp_mask for key, val in pred["inst3d"].items()}
+    pred_fp = {key: val * pred_fp_mask for key, val in pred["inst3d"].items()}
+    # pred_tp["z"] = metric2d["pred_tp"]["z"] * pred_tp_mask
+    # pred_fp["z"] = metric2d["pred_fp"]["z"] * pred_fp_mask
 
     return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn}
 
@@ -165,10 +171,10 @@ def compute_3d_iou(boxes1, boxes2, frame_idx, mask_1, mask_2):
 
 
 def extract_param(boxes, frame_idx, score_mask):
-    hwl = boxes["hwl"][frame_idx, :][score_mask]
-    xyz = np.stack([boxes["yxz"][frame_idx, :, 1], boxes["yxz"][frame_idx, :, 0],
-                    boxes["yxz"][frame_idx, :, 2]], axis=-1)[score_mask]
-    theta = boxes["theta"][frame_idx, :, 0][score_mask]
+    hwl = boxes["inst3d"]["hwl"][frame_idx, :][score_mask]
+    xyz = np.stack([boxes["inst3d"]["yx"][frame_idx, :, 1], boxes["inst3d"]["yx"][frame_idx, :, 0], boxes["inst2d"]["z"][frame_idx, :, 0]],
+                  axis=-1)[score_mask]
+    theta = boxes["inst3d"]["theta"][frame_idx, :, 0][score_mask]
     return hwl, xyz, theta
 
 

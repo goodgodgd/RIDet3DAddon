@@ -176,8 +176,7 @@ class LogBoxYXZ(LogBase):
         grtr_yxz = np.expand_dims(grtr["feat3d"]["yxz"], axis=-2) * np.expand_dims(grtr_obj_mask,
                                                                            axis=-1)  # (b, h*w, anchor,category,yxz)
         pred_yxz = np.expand_dims(pred["feat3d"]["yxz"], axis=-2) * np.expand_dims(pred["feat3d"]["category"], axis=-1)
-
-        yxz_diff = (np.abs(grtr_yxz - pred_yxz, dtype=np.float32)) / (grtr_yxz + 1e-12) * grtr_obj_mask
+        yxz_diff = (np.abs(grtr_yxz - pred_yxz, dtype=np.float32)) / (grtr_yxz + 1e-12) * grtr_obj_mask[..., np.newaxis]
         yxz_sum = np.sum(yxz_diff, axis=-1, dtype=np.float32)        # (b*h*w, anchor, category)
         nonan = (1 - grtr["feat2d"]["object"]) * 1e-12
         valid_num = np.sum(grtr_obj_mask + nonan, axis=(0, 1), dtype=np.float32)
@@ -193,8 +192,8 @@ class LogBoxHWL(LogBase):
                                                                            axis=-1)  # (b, h*w, anchor,category,yxhw)
         pred_hwl = np.expand_dims(pred["feat3d"]["hwl"], axis=-2) * np.expand_dims(pred["feat3d"]["category"], axis=-1)
 
-        hwl_diff = (np.abs(grtr_hwl - pred_hwl, dtype=np.float32)) / (grtr_hwl + 1e-12)
-        hwl_sum = np.sum(hwl_diff, axis=-1, dtype=np.float32) * grtr_obj_mask     # (b*h*w, anchor, category)
+        hwl_diff = (np.abs(grtr_hwl - pred_hwl, dtype=np.float32)) / (grtr_hwl + 1e-12) * np.expand_dims(pred["feat3d"]["category"], axis=-1)
+        hwl_sum = np.sum(hwl_diff, axis=-1, dtype=np.float32)        # (b*h*w, anchor, category)
         nonan = (1 - grtr["feat2d"]["object"]) * 1e-12
         valid_num = np.sum(grtr_obj_mask + nonan, axis=(0, 1), dtype=np.float32)
         hwl_mean = np.sum(hwl_sum, axis=(0, 1), dtype=np.float32) / valid_num

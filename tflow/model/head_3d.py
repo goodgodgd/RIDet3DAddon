@@ -55,13 +55,13 @@ class SingleOutput3d(HeadBase):
 
     def __call__(self, input_features, decode_features):
         aligned_features = self.feature_align(input_features, decode_features)
-        small = aligned_features["feature_3"]
+        small = aligned_features[0]
         conv_sbbox = self.make_output(small, 256)
-        medium = aligned_features["feature_4"]
+        medium = aligned_features[1]
         conv_mbbox = self.make_output(medium, 512)
-        large = aligned_features["feature_5"]
+        large = aligned_features[2]
         conv_lbbox = self.make_output(large, 1024)
-        output_features = {"feature_3": conv_sbbox, "feature_4": conv_mbbox, "feature_5": conv_lbbox}
+        output_features = [conv_sbbox, conv_mbbox, conv_lbbox]
         return output_features
 
     def make_output(self, x, channel):

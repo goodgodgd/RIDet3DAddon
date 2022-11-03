@@ -54,9 +54,9 @@ class ExampleCropper(PreprocessBase):
         src_hw_ratio = src_crop_hw[1] / src_crop_hw[0]      # 2.5
         dst_hw_ratio = self.target_hw_ratio                 # 2
         if dst_hw_ratio < src_hw_ratio:                     # crop x-axis, dst_hw=[200, 400]
-            dst_hw = np.array([src_hw[0], src_hw[0] * dst_hw_ratio], dtype=np.int32)
+            dst_hw = np.array([src_crop_hw[0], src_crop_hw[0] * dst_hw_ratio], dtype=np.int32)
         else:
-            dst_hw = np.array([src_hw[1] / dst_hw_ratio, src_hw[1]], dtype=np.int32)
+            dst_hw = np.array([src_crop_hw[1] / dst_hw_ratio, src_crop_hw[1]], dtype=np.int32)
         # crop with fixed center, ([200, 500]-[200, 400])/2 = [0, 50]
         crop_yx = ((src_crop_hw - dst_hw) // 2).astype(np.int32)
         # crop top left bottom right, [10, 20, 10, 20] + [0, 50, 0, 50] = [10, 70, 10, 70]
