@@ -1,19 +1,19 @@
 import numpy as np
-import utils.util_function as uf
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.utils.util_function as uf3d
 import config as cfg
 
 
-def count_true_positives(grtr, pred, grtr_dontcare, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
+def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
     """
     :param grtr: slices of features["bboxes"] {'yxhw': (batch, N, 4), 'category': (batch, N)}
-    :param grtr_dontcare: slices of features["dontcare"] {'yxhw': (batch, N, 4), 'category': (batch, N)}
     :param pred: slices of nms result {'yxhw': (batch, M, 4), 'category': (batch, M), ...}
     :param num_ctgr: number of categories
     :param iou_thresh: threshold to determine whether two boxes are overlapped
     :param per_class
     :return:
     """
-    splits = split_true_false(grtr, pred, grtr_dontcare, iou_thresh)
+    splits = split_true_false(grtr, pred, iou_thresh)
     # ========== use split instead grtr, pred
     grtr_valid_tp = splits["grtr_tp"]["yxhw"][..., 2:3] > 0
     grtr_valid_fn = splits["grtr_fn"]["yxhw"][..., 2:3] > 0
@@ -35,36 +35,9 @@ def count_true_positives(grtr, pred, grtr_dontcare, num_ctgr, iou_thresh=cfg.Val
         return {"trpo": trpo_count, "grtr": grtr_count, "pred": pred_count}
 
 
-def split_true_false(grtr, pred, grtr_dc, iou_thresh):
-    pred_valid, pred_far = split_pred_far(pred)
-    grtr_far, grtr_valid = split_grtr_far(pred_far, grtr, iou_thresh)
-    splits = split_tp_fp_fn(pred_valid, grtr_valid, iou_thresh)
-    fp_pred, dc_pred = split_dontcare_pred(splits["pred_fp"], grtr_dc)
-    splits["pred_fp"] = fp_pred
-    splits["pred_dc"] = dc_pred
-    splits["grtr_dc"] = grtr_dc
-    splits["pred_far"] = pred_far
-    splits["grtr_far"] = grtr_far
+def split_true_false(grtr, pred, iou_thresh):
+    splits = split_tp_fp_fn(pred, grtr, iou_thresh)
     return splits
-
-
-def split_pred_far(pred):
-    pred_far_mask = pred["distance"] > cfg.Validation.DISTANCE_LIMIT
-    pred_valid = {key: (val * (1 - pred_far_mask).astype(np.float32)) for key, val in pred.items()}
-    pred_far = {key: (val * pred_far_mask).astype(np.float32) for key, val in pred.items()}
-    return pred_valid, pred_far
-
-
-def split_grtr_far(pred_far, grtr, iou_thresh):
-    iou_far = uf.compute_iou_general(grtr["yxhw"], pred_far["yxhw"]).numpy()
-    best_iou_far = np.max(iou_far, axis=-1)
-    if len(iou_thresh) > 1:
-        iou_thresh = get_iou_thresh_per_class(grtr["category"], iou_thresh)
-    iou_match = np.expand_dims(best_iou_far > iou_thresh, axis=-1)
-    grtr_valid = {key: (val * (1 - iou_match)).astype(np.float32) for key, val in grtr.items()}
-    grtr_far = {key: (val * iou_match).astype(np.float32) for key, val in grtr.items()}
-    grtr_far["iou"] = best_iou_far
-    return grtr_far, grtr_valid
 
 
 def split_tp_fp_fn(pred, grtr, iou_thresh):
@@ -83,22 +56,6 @@ def split_tp_fp_fn(pred, grtr, iou_thresh):
 
     ctgr_match = grtr["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
     grtr_tp_mask = np.expand_dims(iou_match * ctgr_match, axis=-1)  # (batch, N, 1)
-
-    if cfg.ModelOutput.MINOR_CTGR:
-        minor_mask = (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Traffic sign")) | \
-                     (grtr["category"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["major"].index("Road mark"))
-        pred_minor_ctgr_aligned = numpy_gather(pred["minor_ctgr"], best_idx, 1)
-        minor_ctgr_match = grtr["minor_ctgr"][..., 0] == pred_minor_ctgr_aligned
-        grtr_tp_mask = np.expand_dims((1 - minor_mask) * grtr_tp_mask[..., 0]
-                                      + minor_mask * minor_ctgr_match, axis=-1).astype(bool)
-
-        if cfg.ModelOutput.SPEED_LIMIT:
-            speed_mask = (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["sign"].index("TS_SPEED_LIMIT")) | \
-                         (grtr["minor_ctgr"][..., 0] == cfg.Dataloader.CATEGORY_NAMES["mark"].index("RM_SPEED_LIMIT"))
-            pred_speed_ctgr_aligned = numpy_gather(pred["speed_ctgr"], best_idx, 1)
-            speed_ctgr_match = grtr["speed_ctgr"][..., 0] == pred_speed_ctgr_aligned
-            grtr_tp_mask = np.expand_dims((1 - speed_mask) * grtr_tp_mask[..., 0]
-                                          + speed_mask * speed_ctgr_match, axis=-1).astype(bool)
 
     grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
     grtr_tp = {key: val * grtr_tp_mask for key, val in grtr.items()}
@@ -151,6 +108,113 @@ def count_per_class(boxes, mask, num_ctgr):
     boxes_onehot = one_hot(boxes_ctgr, num_ctgr) * mask
     boxes_count = np.sum(boxes_onehot, axis=(0, 1))
     return boxes_count
+
+
+def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg.Validation.TP_IOU_THRESH):
+    splits = split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh)
+    grtr_valid_tp = splits["grtr_tp"]["yxhwl"][..., 2:3] > 0
+    grtr_valid_fn = splits["grtr_fn"]["yxhwl"][..., 2:3] > 0
+    pred_valid_tp = splits["pred_tp"]["yxhwl"][..., 2:3] > 0
+    pred_valid_fp = splits["pred_fp"]["yxhwl"][..., 2:3] > 0
+    grtr_count = np.sum(grtr_valid_tp + grtr_valid_fn)
+    pred_count = np.sum(pred_valid_tp + pred_valid_fp)
+    trpo_count = np.sum(pred_valid_tp)
+    return {"trpo3d": trpo_count, "grtr3d": grtr_count, "pred3d": pred_count}
+
+
+def split_tp_fp_fn_3d(grtr, pred, valid_mask, iou_thresh):
+    batch, M, _ = pred["category"].shape
+    batch_iou = list()
+    for frame_idx in range(batch):
+        iou = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["yxhwl"].shape[1]).astype(np.bool),
+                             np.ones(pred["yxhwl"].shape[1]).astype(np.bool))  # (batch, N, M)
+        batch_iou.append(iou)
+    batch_iou = np.stack(batch_iou, axis=0)
+    best_iou = np.max(batch_iou, axis=-1)  # (batch, N)
+
+    best_idx = np.argmax(batch_iou, axis=-1)  # (batch, N)
+    if len(iou_thresh) > 1:
+        iou_thresh = get_iou_thresh_per_class(grtr["category"], iou_thresh)
+    iou_match = best_iou > iou_thresh  # (batch, N)
+
+    pred_ctgr_aligned = numpy_gather(pred["category"], best_idx, 1)  # (batch, N, 8)
+
+    ctgr_match = grtr["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
+    grtr_tp_mask = np.expand_dims(iou_match * ctgr_match, axis=-1)  # (batch, N, 1)
+
+    grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
+    grtr_tp = {key: val * grtr_tp_mask for key, val in grtr.items()}
+    grtr_fn = {key: val * grtr_fn_mask for key, val in grtr.items()}
+    grtr_tp["iou"] = best_iou * grtr_tp_mask[..., 0]
+    grtr_fn["iou"] = best_iou * grtr_fn_mask[..., 0]
+    # last dimension rows where grtr_tp_mask == 0 are all-zero
+    pred_tp_mask = indices_to_binary_mask(best_idx, grtr_tp_mask, M)
+    pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
+    pred_tp = {key: val * pred_tp_mask for key, val in pred.items()}
+    pred_fp = {key: val * pred_fp_mask for key, val in pred.items()}
+
+    return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn}
+
+
+def compute_3d_iou(boxes1, boxes2, frame_idx, mask_1, mask_2):
+    hwl_1, xyz_1, theta_1 = extract_param(boxes1, frame_idx, mask_1)
+    hwl_2, xyz_2, theta_2 = extract_param(boxes2, frame_idx, mask_2)
+    iou = iou3d_7dof_box(hwl_1[..., 2], hwl_1[..., 0], hwl_1[..., 1], xyz_1, theta_1,
+                         hwl_2[..., 2], hwl_2[..., 0], hwl_2[..., 1], xyz_2, theta_2)
+    return iou
+
+
+def extract_param(boxes, frame_idx, score_mask):
+    hwl = boxes["yxhwl"][frame_idx, :, 2:][score_mask]
+    xyz = np.stack([boxes["yxhwl"][frame_idx, :, 1], boxes["yxhwl"][frame_idx, :, 0],
+                    boxes["z"][frame_idx, :, 0]], axis=-1)[score_mask]
+    theta = boxes["theta"][frame_idx, :, 0][score_mask]
+    return hwl, xyz, theta
+
+
+def iou3d_7dof_box(boxes1_length, boxes1_height, boxes1_width, boxes1_center,
+                   boxes1_rotation_z_radians, boxes2_length, boxes2_height,
+                   boxes2_width, boxes2_center, boxes2_rotation_z_radians):
+    """Computes pairwise intersection-over-union between box collections.
+    Args:
+      boxes1_length: Numpy array with shape [N].
+      boxes1_height: Numpy array with shape [N].
+      boxes1_width: Numpy array with shape [N].
+      boxes1_center: A Numpy array with shape [N, 3] holding N box centers in the
+        format of [cx, cy, cz].
+      boxes1_rotation_z_radians: Numpy array with shape [N].
+      boxes2_length: Numpy array with shape [M].
+      boxes2_height: Numpy array with shape [M].
+      boxes2_width: Numpy array with shape [M].
+      boxes2_center: A Numpy array with shape [M, 3] holding M box centers in the
+        format of [cx, cy, cz].
+      boxes2_rotation_z_radians: Numpy array with shape [M].
+    Returns:
+      A Numpy array with shape [N, M] representing pairwise iou scores.
+    """
+    n = boxes1_center.shape[0]
+    m = boxes2_center.shape[0]
+    if n == 0 or m == 0:
+        return np.zeros([n, m], dtype=np.float32)
+    boxes1_volume = uf3d.volume(
+        length=boxes1_length, height=boxes1_height, width=boxes1_width)
+    boxes1_volume = np.tile(np.expand_dims(boxes1_volume, axis=1), [1, m])
+    boxes2_volume = uf3d.volume(
+        length=boxes2_length, height=boxes2_height, width=boxes2_width)
+    boxes2_volume = np.tile(np.expand_dims(boxes2_volume, axis=0), [n, 1])
+    intersection = uf3d.intersection3d_7dof_box(
+        boxes1_length=boxes1_length,
+        boxes1_height=boxes1_height,
+        boxes1_width=boxes1_width,
+        boxes1_center=boxes1_center,
+        boxes1_rotation_z_radians=boxes1_rotation_z_radians,
+        boxes2_length=boxes2_length,
+        boxes2_height=boxes2_height,
+        boxes2_width=boxes2_width,
+        boxes2_center=boxes2_center,
+        boxes2_rotation_z_radians=boxes2_rotation_z_radians)
+    union = boxes1_volume + boxes2_volume - intersection
+    return intersection / union
 
 
 def one_hot(grtr_category, category_shape):

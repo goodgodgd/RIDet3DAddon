@@ -1,239 +1,202 @@
 import numpy as np
 
 import config as cfg
-import utils.util_function as uf
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.utils.util_function as uf3d
+import RIDet3DAddon.tflow.model.encoder_2d as encoder_2d
 
 
 class FeatureMapDistributer:
-    def __init__(self, ditrib_policy, anchors_per_scale):
-        self.ditrib_policy = eval(ditrib_policy)(anchors_per_scale)
+    def __init__(self, ditrib_policy, imshape, anchors_per_scale):
+        self.ditrib_policy = eval(ditrib_policy)(imshape, anchors_per_scale)
 
-    def create(self, bboxes2d, bboxes3d, feat_sizes):
-        bbox2d_map, bbox3d_map = self.ditrib_policy(bboxes2d, bboxes3d, feat_sizes)
-        return bbox2d_map, bbox3d_map
+    def __call__(self, features):
+        for key in ["inst2d", "inst3d"]:
+            features[key] = uf3d.merge_and_slice_features(features[key], True, key)
+        features = uf.convert_tensor_to_numpy(features)
+        features = self.ditrib_policy(features)
+        return features
 
 
 class ObjectDistribPolicy:
-    def __init__(self, anchors_per_scale):
-        self.feat_order = cfg.ModelOutput.FEATURE_SCALES
-        self.anchor_ratio = np.concatenate([anchor for anchor in anchors_per_scale])
-        self.num_anchor = len(self.anchor_ratio) // len(self.feat_order)
+    def __init__(self, imshape, anchors_per_scale):
+        self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
+        self.feat_shapes = [np.array(imshape[:2]) // scale for scale in self.feat_scales]
+        self.anchor_ratio = np.array(anchors_per_scale)
+        self.num_anchor_per_scale = len(self.anchor_ratio) // len(self.feat_scales)
+    
+    def __call__(self, features):
+        return features
+
+    def feature_merge(self, features):
+        fkey = [key for key in features.keys() if key.startswith("feat")]
+        for key in fkey:
+            slice_feat = features[key]
+            merge_features = {key: list() for key in slice_feat.keys()}
+            for slice_key, feat in slice_feat.items():
+                if key is "merged":
+                    merge_features[slice_key] = feat
+                    continue
+                for dict_per_feat in feat:
+                    merge_features[slice_key].append(uf.merge_dim_hwa(dict_per_feat))
+            features[key] = merge_features
+        return features
 
 
-class SinglePositivePolicy(ObjectDistribPolicy):
-    def __init__(self, anchors_per_scale):
-        super().__init__(anchors_per_scale)
+class MultiPositiveGenerator:
+    def __init__(self, imshape, center_radius=cfg.FeatureDistribPolicy.CENTER_RADIUS,
+                 multi_positive_weight=cfg.FeatureDistribPolicy.MULTI_POSITIVE_WIEGHT):
+        self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
+        self.feat_shapes = [np.array(imshape[:2]) // scale for scale in self.feat_scales]
+        self.box_size_range_per_scale = self.get_box_size_ranges()
+        self.center_radius = center_radius
+        self.multi_positive_weight = multi_positive_weight
 
-    def __call__(self, bboxes, feat_sizes):
-        """
-        :param bboxes: bounding boxes in image ratio (0~1) [cy, cx, h, w, obj, major_category, minor_category, depth] (N, 8)
-        :param anchors: anchors in image ratio (0~1) (9, 2)
-        :param feat_sizes: feature map sizes for 3 feature maps
-        :return:
-        """
+    def get_box_size_ranges(self):
+        size_ranges = []
+        for feat_size in self.feat_scales:
+            size_ranges.append([feat_size * np.sqrt(2) / 2, feat_size * np.sqrt(2) * 2])
+        size_ranges = np.array(size_ranges)
+        # no upper bound for large scale
+        size_ranges[0, 0] = 0.001
+        size_ranges[-1, 1] = 100000
+        return size_ranges
+    
+    def __call__(self, features):
+        inst2d = features["inst2d"]
+        inst3d = features["inst3d"]
+        box2d = features["inst2d"]["yxhw"]
+        grid_yx, belong_to_scale = self.to_grid_over_scales(box2d)
+        features["feat2d"] = self.create_featmap_single_positive(inst2d, grid_yx, belong_to_scale)
+        features["feat3d"] = self.create_featmap_single_positive(inst3d, grid_yx, belong_to_scale)
 
-        boxes_hw = bboxes[:, np.newaxis, 2:4]  # (N, 1, 8)
-        anchors_hw = self.anchor_ratio[np.newaxis, :, :]  # (1, 9, 2)
-        inter_hw = np.minimum(boxes_hw, anchors_hw)  # (N, 9, 2)
-        inter_area = inter_hw[:, :, 0] * inter_hw[:, :, 1]  # (N, 9)
-        union_area = boxes_hw[:, :, 0] * boxes_hw[:, :, 1] + anchors_hw[:, :, 0] * anchors_hw[:, :, 1] - inter_area
-        iou = inter_area / union_area
-        best_anchor_indices = np.argmax(iou, axis=1)
+        for key in ["feat2d", "feat3d"]:
+            features[key] = uf3d.merge_and_slice_features(features[key], True, key)
+        features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+                                                                         features["feat2d"]["object"])
+        # features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        #                                                                  features["feat2d"]["object"])
+        return features
 
-        gt_features = [np.zeros((feat_shape[0], feat_shape[1], self.num_anchor, bboxes.shape[-1]), dtype=np.float32)
-                       for feat_shape in feat_sizes]
+    def to_grid_over_scales(self, box2d):
+        grid_yx, belong_to_scale = [], []
+        for i, s in enumerate(self.feat_scales):
+            grid_yx_in_scale, belong_in_scale = self.to_grid(box2d, i)
+            grid_yx.append(grid_yx_in_scale)
+            belong_to_scale.append(belong_in_scale)
+        return grid_yx, belong_to_scale
 
-        # TODO split anchor indices by scales, create each feature map by single operation
-        for anchor_index, bbox in zip(best_anchor_indices, bboxes):
-            scale_index = anchor_index // self.num_anchor
-            anchor_index_in_scale = anchor_index % self.num_anchor
-            feat_map = gt_features[scale_index]
-            # bbox: [y, x, h, w, category]
-            grid_yx = (bbox[:2] * feat_sizes[scale_index]).astype(np.int32)
-            assert (grid_yx >= 0).all() and (grid_yx < feat_sizes[scale_index]).all()
-            # # bbox: [y, x, h, w, 1, major_category, minor_category, depth]
-            feat_map[grid_yx[0], grid_yx[1], anchor_index_in_scale] = bbox
-            gt_features[scale_index] = feat_map
+    def to_grid(self, box2d, scale_index):
+        box2d_pixel = uf3d.convert_box_scale_01_to_pixel(box2d)
+        diag_length = np.linalg.norm(box2d_pixel[..., 2:4], axis=-1)
+        box_range = self.box_size_range_per_scale[scale_index]
+        belong_to_scale = np.logical_and(diag_length > box_range[0], diag_length < box_range[1])
+        box_grid_yx = box2d_pixel[..., :2] // np.array(self.feat_scales[scale_index])
+        return box_grid_yx, belong_to_scale
+
+    def create_featmap_single_positive(self, inst, grid_yx, belong_to_scale):
+        feats_over_scale = []
+        for i, s in enumerate(self.feat_scales):
+            feats_in_batch = []
+            for b in range(inst["merged"].shape[0]):
+                feat_map = self.create_featmap(self.feat_shapes[i], inst["merged"][b], grid_yx[i][b], belong_to_scale[i][b])
+                feats_in_batch.append(feat_map)
+            feats_over_scale.append(np.stack(feats_in_batch, axis=0))
+        return feats_over_scale
+
+    def create_featmap(self, feat_shapes, instances, grid_yx, valid):
+        valid_grid_yx = grid_yx[valid].astype(np.int)
+        gt_features = np.zeros((feat_shapes[0], feat_shapes[1], 1, instances.shape[-1]), dtype=np.float32)
+        gt_features[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = instances[valid][..., np.newaxis, :]
         return gt_features
+
+    def multi_positive_objectness(self, box2d, validity, single_positive_map):
+        mp_object_over_scale = []
+        for i, s in enumerate(self.feat_scales):
+            grid_center_yx = self.make_grid_center(self.feat_shapes[i])
+            positive_tlbr_from_box = self.get_positive_range_from_box(box2d, validity[i])
+            positive_tlbr_from_radius = self.get_positive_range_from_radius(box2d, self.center_radius, i, validity[i])
+            object_from_box = self.get_positive_map_in_boxes(positive_tlbr_from_box, grid_center_yx)
+            object_from_radius = self.get_positive_map_in_boxes(positive_tlbr_from_radius, grid_center_yx)
+            mp_object = self.merge_positive_maps(single_positive_map[i], object_from_box, object_from_radius)
+            mp_object_over_scale.append(mp_object)
+        return mp_object_over_scale
+    
+    def make_grid_center(self, feat_map_size):
+        rx = np.arange(0, feat_map_size[1])
+        ry = np.arange(0, feat_map_size[0])
+        x_grid, y_grid = np.meshgrid(rx, ry)
+        y_grid_center = ((y_grid + 0.5) / feat_map_size[0])
+        x_grid_center = ((x_grid + 0.5) / feat_map_size[1])
+        # (h, w, 2)
+        grid_center_yx = np.stack([y_grid_center, x_grid_center], axis=-1)
+        return grid_center_yx
+    
+    def get_positive_range_from_box(self, box2d_in_scale, validity):
+        half_box = np.concatenate([box2d_in_scale[..., :2], box2d_in_scale[..., 2:4] * 0.5], axis=-1)
+        box_tlbr = uf.convert_box_format_yxhw_to_tlbr(half_box)
+        box_tlbr *= validity[..., np.newaxis]
+        return box_tlbr
+    
+    def get_positive_range_from_radius(self, box2d_in_scale, center_radius, scale_index, validity):
+        norm_radius = np.array(center_radius) / self.feat_shapes[scale_index]
+        positive_t = box2d_in_scale[..., :1] - norm_radius[0]
+        positive_l = box2d_in_scale[..., 1:2] - norm_radius[1]
+        positive_b = box2d_in_scale[..., :1] + norm_radius[0]
+        positive_r = box2d_in_scale[..., 1:2] + norm_radius[1]
+        positive_tlbr = np.concatenate([positive_t, positive_l, positive_b, positive_r], axis=-1)
+        positive_tlbr *= validity[..., np.newaxis]
+        return positive_tlbr
+    
+    def get_positive_map_in_boxes(self, positive_tlbr, grid_center_yx):
+        """
+        :param positive_tlbr: (B, N, 4) 
+        :param grid_center_yx: (H, W, 2)
+        :return: 
+        """
+        grid_center_yx = grid_center_yx[np.newaxis, ...]    # (1,H,W,2)
+        positive_tlbr = positive_tlbr[:, np.newaxis, np.newaxis, ...]   # (B,1,1,N,4)
+        # (1,H,W,1) - (B,1,1,N) -> (B,H,W,N)
+        delta_t = grid_center_yx[..., 0:1] - positive_tlbr[..., 0]
+        delta_l = grid_center_yx[..., 1:2] - positive_tlbr[..., 1]
+        delta_b = positive_tlbr[..., 2] - grid_center_yx[..., 0:1]
+        delta_r = positive_tlbr[..., 3] - grid_center_yx[..., 1:2]
+        # (B, H, W, N, 4)
+        tblr_grid_x_box = np.stack([delta_t, delta_l, delta_b, delta_r], axis=-1)
+        # (B, H, W, N)
+        positive_mask = np.all(tblr_grid_x_box > 0, axis=-1)
+        # (B, H, W)
+        positive_mask = np.any(positive_mask > 0, axis=-1)
+        return positive_mask
+
+    def merge_positive_maps(self, single_positive_map, object_from_box, object_from_radius):
+        multi_positive_map = np.logical_and(object_from_box, object_from_radius).astype(int)
+        output_map = single_positive_map + (1 - single_positive_map) * multi_positive_map[..., np.newaxis, np.newaxis] \
+                     * self.multi_positive_weight
+        return output_map
 
 
 class MultiPositivePolicy(ObjectDistribPolicy):
-    def __init__(self, anchors_per_scale):
-        super().__init__(anchors_per_scale)
-        self.iou_threshold = cfg.FeatureDistribPolicy.IOU_THRESH
-        self.image_shape = cfg.Datasets.DATASET_CONFIGS.INPUT_RESOLUTION
-        self.strides = cfg.ModelOutput.FEATURE_SCALES
-
-# TODO 1. make anchor map 2. anchor and gt bbox match 3. iou threshold
-    def __call__(self, bboxes, feat_sizes):
-
-        anchor_map = self.make_anchor_map(feat_sizes)
-        gt_features = self.make_bbox_map(bboxes, anchor_map, feat_sizes)
-        return gt_features
-
-    def make_anchor_map(self, feat_sizes):
-        anchors = []
-        for scale, (feat_size, stride) in enumerate(zip(feat_sizes, self.feat_order)):
-            ry = (np.arange(0, feat_size[0]) + 0.5) * stride / self.image_shape[0]
-            rx = (np.arange(0, feat_size[1]) + 0.5) * stride / self.image_shape[1]
-            ry, rx = np.meshgrid(ry, rx)
-
-            grid_map = np.vstack((ry.ravel(), rx.ravel(), np.zeros(feat_size[0] * feat_size[1]), np.zeros(feat_size[0] * feat_size[1]))).transpose()
-            anchor_ratio = np.concatenate([np.zeros((3, 2)), self.anchor_ratio[scale * 3:(scale+1) * 3]], axis=1)
-            anchor_map = (anchor_ratio.reshape((1, self.num_anchor, 4))
-                          + grid_map.reshape((1, grid_map.shape[0], 4)).transpose((1, 0, 2)))
-            anchor_map = anchor_map.reshape((self.num_anchor * grid_map.shape[0], 4))
-            anchors.append(anchor_map)
-        anchors = np.concatenate(anchors, axis=0)
-        return anchors
-
-    def make_bbox_map(self, bboxes, anchor_map, feat_sizes):
-
-        bboxes_tlbr = uf.convert_box_format_yxhw_to_tlbr(bboxes)
-        anchor_tlbr = uf.convert_box_format_yxhw_to_tlbr(anchor_map)
-        bboxes_area = (bboxes_tlbr[:, 2] - bboxes_tlbr[:, 0]) * (bboxes_tlbr[:, 3] - bboxes_tlbr[:, 1])
-        anchor_area = (anchor_tlbr[:, 2] - anchor_tlbr[:, 0]) * (anchor_tlbr[:, 3] - anchor_tlbr[:, 1])
-        width_height = np.minimum(bboxes_tlbr[:, np.newaxis, 2:4], anchor_tlbr[np.newaxis, :, 2:]) - \
-                       np.maximum(bboxes_tlbr[:, np.newaxis, :2], anchor_tlbr[np.newaxis, :, :2])
-        width_height = np.clip(width_height, 0, 1)
-        intersection = np.prod(width_height, axis=-1)
-        iou = np.where(intersection > 0, intersection / (bboxes_area[:, np.newaxis] + anchor_area[np.newaxis, :] - intersection), np.zeros(1))
-        max_iou = np.amax(iou, axis=0)
-        max_gt_idx = np.argmax(iou, axis=1)
-        max_idx = np.argmax(iou, axis=0)
-        positive = max_iou > self.iou_threshold[0]
-        negative = max_iou < self.iou_threshold[1]
-
-        max_match = np.zeros((anchor_tlbr.shape[0], bboxes_tlbr.shape[-1]))
-        max_match[max_gt_idx] = bboxes
-        max_match = max_match * (~positive[:, np.newaxis])
-        iou_match = bboxes[max_idx, ...] * positive[:, np.newaxis]
-        gt_match = iou_match + max_match
-
-        gt_features = []
-        start_channel = 0
-        for scale in feat_sizes:
-            last_channel = start_channel + scale[0] * scale[1] * self.num_anchor
-            gt_feat = gt_match[start_channel: last_channel, ...].astype(np.float32)
-            start_channel = last_channel
-            gt_features.append(gt_feat.reshape(scale[0], scale[1], self.num_anchor, -1))
-        return gt_features
-
-
-class OTAPolicy(ObjectDistribPolicy):
-    def __init__(self, anchors_per_scale, center_radius=cfg.FeatureDistribPolicy.CENTER_RADIUS,
-                 resolution=cfg.Datasets.DATASET_CONFIGS.INPUT_RESOLUTION,
-                 box_standard=cfg.FeatureDistribPolicy.BOX_SIZE_STANDARD):
-        super().__init__(anchors_per_scale)
+    def __init__(self, imshape, anchors_per_scale, center_radius=cfg.FeatureDistribPolicy.CENTER_RADIUS,
+                 resolution=cfg.Datasets.DATASET_CONFIG.INPUT_RESOLUTION):
+        super().__init__(imshape, anchors_per_scale)
         self.center_radius = center_radius
         self.resolution = resolution
+        self.generate_feature_maps = MultiPositiveGenerator(imshape)
+        self.decoder2d = encoder_2d.FeatureEncoder(anchors_per_scale)
 
-    def __call__(self, bboxes, feat_sizes):
-        valid_bboxes = bboxes[bboxes[..., 2] > 0]
-        bboxes_pixel = uf.convert_box_scale_01_to_pixel(valid_bboxes)
-        under_sizes, upper_sizes = self.scale_limit()
-        box_scales = self.find_box_scales(bboxes_pixel, under_sizes, upper_sizes)
-        box_grid_coords = self.find_box_grid_coordinates(bboxes_pixel)
-        gt_features = [np.zeros((feat_shape[0], feat_shape[1], 1, bboxes.shape[-1]), dtype=np.float32)
-                       for feat_shape in feat_sizes]
-
-        for i, grid_size in enumerate(self.feat_order):
-            feat_map = gt_features[i]
-            multi_obj_map = feat_map.copy()
-            box_scale = box_scales[..., i]
-            box_grid_coord = box_grid_coords[..., i, :]
-            valid_grid_yx = box_grid_coord[box_scale].astype(np.int)
-            feat_map[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = valid_bboxes[box_scale][..., np.newaxis, :]
-
-            norm_radius = self.center_radius / feat_sizes[i]
-            rx = np.arange(0, feat_sizes[i][1])
-            ry = np.arange(0, feat_sizes[i][0])
-            x_grid, y_grid = np.meshgrid(rx, ry)
-            y_grid_center = ((y_grid + 0.5) / feat_sizes[i][0])[np.newaxis, ...]
-            x_grid_center = ((x_grid + 0.5) / feat_sizes[i][1])[np.newaxis, ...]
-            valid_bbox_mask = self.bbox_mask(valid_bboxes[box_scale], y_grid_center, x_grid_center, False)
-            valid_center_mask = self.center_mask(valid_bboxes[box_scale], y_grid_center, x_grid_center, norm_radius)
-            valid_mask = valid_bbox_mask & valid_center_mask
-            multi_obj_map[..., 4] = multi_obj_map[..., 4] + valid_mask[..., np.newaxis] * 0.8
-            feat_map = np.maximum(multi_obj_map, feat_map)
-            # print("generator", np.sum(feat_map == 1))
-            gt_features[i] = feat_map
-        return gt_features
-
-    def find_box_scales(self, bboxes_pixel, under_sizes, upper_sizes):
-        diag_length = np.linalg.norm(bboxes_pixel[..., 2:4], axis=-1)
-        bbox_scales = list()
-        for under, upper in zip(under_sizes, upper_sizes):
-            bbox_scales.append(np.logical_and(diag_length > under, diag_length < upper))
-        bbox_scales = np.stack(bbox_scales, axis=-1)
-        return bbox_scales
-
-    def find_box_grid_coordinates(self, bboxes_pixel):
-        # [B, N, 1, C] / [3, 1] = [B, N, 3, C]
-        grid_coord = bboxes_pixel[..., np.newaxis, :2] // np.array(self.feat_order)[..., np.newaxis]
-        return grid_coord
-
-    def scale_limit(self):
-        under_sizes = list()
-        upper_sizes = list()
-        for feat_size in self.feat_order:
-            under_sizes.append(feat_size * np.sqrt(2))
-            upper_sizes.append(feat_size * np.sqrt(2) * 3)
-        # no upper bound for large scale
-        upper_sizes[-1] = 10000
-        return under_sizes, upper_sizes
-
-    def check_scale(self, bbox, under_sizes, upper_sizes):
-        bbox_size = (bbox[2] ** 2 + bbox[3] ** 2) ** (1 / 2)
-        bbox_scales = list()
-        if bbox_size < upper_sizes[0]:
-            bbox_scales.append(0)
-        if under_sizes[1] < bbox_size < upper_sizes[1]:
-            bbox_scales.append(1)
-        if under_sizes[2] < bbox_size:
-            bbox_scales.append(2)
-        return bbox_scales
-
-    def bbox_mask(self, bbox, y_grid_center, x_grid_center, use_half):
+    def __call__(self, features):
         """
-        :param bbox: instance GT bbox (n, c)
-        :param y_grid_center: (num_gt, h*w)
-        :param x_grid_center: (num_gt, h*w)
-        :return: (num_box, num_anchor), (num_anchor)
+        :param features["inst2d"]: (B, N, 6), np.array, [yxhw, objectness, category]
+        :param features["inst3d"]: (B, N, 9), np.array, [yxhwl, z, theta, objecntess, category]
+        :return: 
         """
-        if use_half:
-            bbox[..., 2:4] = bbox[..., 2:4] * 0.5
-        bbox_tlbr = uf.convert_box_format_yxhw_to_tlbr(bbox)
+        features = self.generate_feature_maps(features)
+        # print("feature_map: ", features["feat2d"]["yxhw"][0][0, 23, 127, :])
+        # print("feature_map: ", features["inst2d"]["yxhw"][0])
+        features["feat2d_logit"] = self.decoder2d.inverse(features["feat2d"])
+        features = self.feature_merge(features)
+        return features
 
-        delta_box_t = y_grid_center - bbox_tlbr[..., np.newaxis, :1]
-        delta_box_l = x_grid_center - bbox_tlbr[..., np.newaxis, 1:2]
-        delta_box_b = bbox_tlbr[..., np.newaxis, 2:3] - y_grid_center
-        delta_box_r = bbox_tlbr[..., np.newaxis, 3:4] - x_grid_center
-        # bbox_deltas: (num_box, num_anchor, 4)
-        bbox_deltas = np.stack([delta_box_t, delta_box_l, delta_box_b, delta_box_r], axis=-1)
-        in_valid_bboxes = np.min(bbox_deltas, axis=-1) > 0
-        in_valid_all_bboxes = np.sum(in_valid_bboxes, axis=0) > 0
-        return in_valid_all_bboxes
 
-    def center_mask(self, bboxes, y_grid_center, x_grid_center, normalize_radius):
-        """
-        :param bboxes: instance GT bbox (num_gt, c)
-        :param y_grid_center: (num_gt, h*w)
-        :param x_grid_center: (num_gt, h*w)
-        :param normalize_radius:
-        :return: (num_box, num_anchor), (num_anchor)
-        """
-        center_t = bboxes[..., :1] - normalize_radius[0]
-        center_l = bboxes[..., 1:2] - normalize_radius[1]
-        center_b = bboxes[..., :1] + normalize_radius[0]
-        center_r = bboxes[..., 1:2] + normalize_radius[1]
 
-        delta_center_t = y_grid_center - center_t[..., np.newaxis, :]
-        delta_center_l = x_grid_center - center_l[..., np.newaxis, :]
-        delta_center_b = center_b[..., np.newaxis, :] - y_grid_center
-        delta_center_r = center_r[..., np.newaxis, :] - x_grid_center
-        # center_deltas: (num_gt, h*w, 4)
-        center_deltas = np.stack([delta_center_t, delta_center_l, delta_center_b, delta_center_r], axis=-1)
-        in_valid_center_bboxes = np.min(center_deltas, axis=-1) > 0
-        in_valid_all_center = np.sum(in_valid_center_bboxes, axis=0) > 0
-        return in_valid_all_center

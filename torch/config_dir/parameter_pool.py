@@ -10,7 +10,7 @@ class LossComb:
            "category_2d": ([.1, .1, .1], "MajorCategoryLoss", "2d"),
            "category_3d": ([.1, .1, .1], "MajorCategoryLoss", "3d"),
            "box_3d": ([1., 1., 1.], "Box3DLoss"),
-           "theta": ([2., 2., 2.], "ThetaLoss", 1.1, 1.5)
+           "theta": ([2., 2., 2.], "ThetaLoss", 1.1,1.5)
            }
     # BEV = {
     #        "object": ([1., 1., 1.], "BoxObjectnessLoss", 1, 1),
@@ -77,7 +77,11 @@ class TrainingPlan:
     KITTIBEV_SIMPLE = [
         # ("kittibev", 1, 0.0000001, LossComb.BEV, True),
         ("kittibev", 1, 1e-06, LossComb.BEV, True),
-        ("kittibev", 50, 1e-04, LossComb.BEV, True),
+        ("kittibev", 10, 1e-04, LossComb.BEV, True),
+        ("kittibev", 10, 1e-04, LossComb.BEV, True),
+        ("kittibev", 10, 1e-04, LossComb.BEV, True),
+        ("kittibev", 10, 1e-04, LossComb.BEV, True),
+        ("kittibev", 10, 1e-04, LossComb.BEV, True),
         ("kittibev", 50, 1e-05, LossComb.BEV, True),
         ("kittibev", 50, 1e-06, LossComb.BEV, True),
         ("kittibev", 50, 1e-07, LossComb.BEV, True)
@@ -85,16 +89,15 @@ class TrainingPlan:
 
 
 class TfrParams:
-    MIN_PIX = {'train': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
+    MIN_PIX = {'train': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Van": 0, "Truck": 0, "Cyclist": 0,
                          },
-               'val': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Cyclist": 0,
+               'val': {"Bgd": 0, "Pedestrian": 0, "Car": 0, "Van": 0, "Truck": 0, "Cyclist": 0,
                        }
                }
 
-    CATEGORY_NAMES = {"category": ["Bgd", "Pedestrian", "Car", "Cyclist", ],
+    CATEGORY_NAMES = {"category": ["Bgd", "Pedestrian", "Car", "Van", "Truck", "Cyclist", ],
                       "dont": ["Don't Care"],
                       }
-
 
 class TrainParams:
     @classmethod

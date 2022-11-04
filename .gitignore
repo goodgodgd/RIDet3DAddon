@@ -4,7 +4,7 @@ ckpt
 .idea
 *~
 .python-version
-config.py
+torch/config.py
 test_config.py
 .png
 .jpg

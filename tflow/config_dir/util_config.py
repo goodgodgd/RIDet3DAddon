@@ -1,39 +1,39 @@
 import numpy as np
 
-import config_dir.config_generator as cg
-import config as cfg
+import RIDet3DAddon.tflow.config_dir.config_generator as cg
+import RIDet3DAddon.config as cfg3d
 
 
 def get_channel_composition(is_gt: bool):
     if is_gt:
-        return cfg.ModelOutput.GRTR_MAIN_COMPOSITION
+        return cfg3d.ModelOutput.GRTR_MAIN_COMPOSITION
     else:
-        return cfg.ModelOutput.PRED_MAIN_COMPOSITION
+        return cfg3d.ModelOutput.PRED_MAIN_COMPOSITION
 
 
 def get_3d_channel_composition(is_gt: bool):
     if is_gt:
-        return cfg.ModelOutput.GRTR_3D_MAIN_COMPOSITION
+        return cfg3d.ModelOutput.GRTR_3D_MAIN_COMPOSITION
     else:
-        return cfg.ModelOutput.PRED_3D_MAIN_COMPOSITION
+        return cfg3d.ModelOutput.PRED_3D_MAIN_COMPOSITION
 
 
 def get_bbox_composition(is_gt: bool):
     if is_gt:
-        return cfg.ModelOutput.GRTR_NMS_COMPOSITION
+        return cfg3d.ModelOutput.GRTR_NMS_COMPOSITION
     else:
-        return cfg.ModelOutput.PRED_NMS_COMPOSITION
+        return cfg3d.ModelOutput.PRED_NMS_COMPOSITION
 
 
 def get_3d_bbox_composition(is_gt: bool):
     if is_gt:
-        return cfg.ModelOutput.GRTR_3D_NMS_COMPOSITION
+        return cfg3d.ModelOutput.GRTR_3D_NMS_COMPOSITION
     else:
-        return cfg.ModelOutput.PRED_3D_NMS_COMPOSITION
+        return cfg3d.ModelOutput.PRED_3D_NMS_COMPOSITION
 
 
 def get_img_shape(code="HW", dataset="kitti", scale_div=1):
-    dataset_cfg = cfg.Datasets.TARGET_DATASET
+    dataset_cfg = cfg3d.Datasets.TARGET_DATASET
     imsize = dataset_cfg.INPUT_RESOLUTION
     code = code.upper()
     if code == "H":
@@ -47,7 +47,7 @@ def get_img_shape(code="HW", dataset="kitti", scale_div=1):
     elif code == "HWC":
         return imsize[0] // scale_div, imsize[1] // scale_div, 3
     elif code == "BHWC":
-        return cfg.Train.BATCH_SIZE, imsize[0] // scale_div, imsize[1] // scale_div, 3
+        return cfg3d.Train.BATCH_SIZE, imsize[0] // scale_div, imsize[1] // scale_div, 3
     else:
         assert 0, f"Invalid code: {code}"
 
@@ -66,14 +66,14 @@ def get_valid_category_mask(dataset="kitti"):
     renamed_categories = [dataset_cfg.CATEGORY_REMAP[categ] if categ in dataset_cfg.CATEGORY_REMAP else categ
                           for categ in dataset_cfg.CATEGORIES_TO_USE]
     if dataset == "kitti":
-        for i, categ in enumerate(cfg.Dataloader.CATEGORY_NAMES["category"]):
+        for i, categ in enumerate(cfg3d.Dataloader.CATEGORY_NAMES["category"]):
             if categ not in renamed_categories:
                 renamed_categories.insert(i, categ)
 
-    mask = np.zeros((len(cfg.Dataloader.CATEGORY_NAMES["category"]),), dtype=np.int32)
+    mask = np.zeros((len(cfg3d.Dataloader.CATEGORY_NAMES["category"]),), dtype=np.int32)
     for categ in renamed_categories:
-        if categ in cfg.Dataloader.CATEGORY_NAMES["category"]:
-            index = cfg.Dataloader.CATEGORY_NAMES["category"].index(categ)
-            if index < len(cfg.Dataloader.CATEGORY_NAMES["category"]):
+        if categ in cfg3d.Dataloader.CATEGORY_NAMES["category"]:
+            index = cfg3d.Dataloader.CATEGORY_NAMES["category"].index(categ)
+            if index < len(cfg3d.Dataloader.CATEGORY_NAMES["category"]):
                 mask[index] = 1
     return mask

@@ -6,7 +6,7 @@ import config as cfg
 import RIDet3DAddon.torch.config as cfg3d
 
 
-def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
+def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg3d.Validation.TP_IOU_THRESH, per_class=False):
     """
     :param grtr: slices of features["bboxes"] {'yxhw': (batch, N, 4), 'category': (batch, N)}
     :param pred: slices of nms result {'yxhw': (batch, M, 4), 'category': (batch, M), ...}

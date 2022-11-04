@@ -34,8 +34,14 @@ class KittiReader(DatasetReaderBase):
         print("[KittiReader.init_drive] # frames:", len(frame_names), "first:", frame_names[0])
         return frame_names
 
+    def get_frame_name(self, index):
+        return self.frame_names[index]
+
     def get_image(self, index):
         return cv2.imread(self.frame_names[index])
+
+    def get_image_shape(self, index):
+        return cv2.imread(self.frame_names[index]).shape[:2]
 
     def get_depth(self, index):
         image_file = self.frame_names[index]
@@ -43,6 +49,30 @@ class KittiReader(DatasetReaderBase):
         depth = np.load(depth_file)
         depth = np.moveaxis(depth, [2, 3, 1, 0], [0, 1, 2, 3])[..., 0]
         return depth
+
+    def get_intrinsic(self, index):
+        calib_dict = dict()
+        image_file = self.frame_names[index]
+        calib_file = image_file.replace("image_2", "calib").replace(".png", ".txt")
+        img_shape = self.get_image_shape(index)
+        with open(calib_file, "r") as f:
+            lines = f.readlines()
+            for line in lines:
+                new_line = []
+                line = line.split(" ")
+                if len(line) == 1:
+                    pass
+                else:
+                    line[0] = line[0].rstrip(":")
+                    line[-1] = line[-1].rstrip("\n")
+                    for a in line[1:]:
+                        new_line.append(float(a))
+                    calib_dict[line[0]] = new_line
+            calib_dict["P2"] = np.reshape(np.array(calib_dict["P2"]), (3, 4))
+            divider = np.array([[img_shape[1]], [img_shape[0]], [1]])
+            calib_dict["P2"] /= divider
+
+            return calib_dict["P2"].astype(np.float32)
 
     def get_bboxes(self, index, raw_hw_shape=None):
         """
@@ -81,12 +111,14 @@ class KittiReader(DatasetReaderBase):
         h = raw_label[8]
         w = raw_label[9]
         l = raw_label[10]
+        if (y2 - y1 < 1) or (x2 - x1 < 1):
+            return None, None, None
         x3d = raw_label[11]
         y3d = raw_label[12]
         z = raw_label[13]
         theta = raw_label[14]
         bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d, x3d, z, h, w, l, theta, 1], dtype=np.float32)
+        bbox_3d = np.array([y3d, x3d, h, w, l, z, theta], dtype=np.float32)
         return bbox_2d, bbox_3d, category_name
 
     def load_calib_data(self, file):
@@ -242,7 +274,7 @@ def test_kitti_reader():
         image = reader.get_image(i)
         bboxes = reader.get_bboxes(i)
         print(f"frame {i}, bboxes:\n", bboxes)
-        boxed_image = tu.draw_boxes(image, bboxes, dataset_cfg.CATEGORIES_TO_USE)
+        boxed_image = tu.draw_boxes(image, bboxes, dataset_cfg.CATEGORIES_TO_USE, )
         cv2.imshow("kitti", boxed_image)
         key = cv2.waitKey()
         if key == ord('q'):

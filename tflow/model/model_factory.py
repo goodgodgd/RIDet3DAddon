@@ -2,29 +2,31 @@ import tensorflow as tf
 import numpy as np
 from tensorflow import keras
 
-import model.backbone as back
-import model.head_2d as head2d
-import model.head_3d as head3d
-import model.neck as neck
-import model.decoder_2d as decoder2d
-import model.decoder_3d as decoder3d
-import utils.util_function as uf
+import model.tflow.backbone as back
+import model.tflow.head as head2d
+import RIDet3DAddon.tflow.model.head_3d as head3d
+import model.tflow.neck as neck
+import RIDet3DAddon.tflow.model.decoder_2d as decoder2d
+import RIDet3DAddon.tflow.model.decoder_3d as decoder3d
+import utils.tflow.util_function as uf
 import config as cfg
-import model.model_util as mu
+import RIDet3DAddon.config as cfg3d
+import model.tflow.model_util as mu
+import RIDet3DAddon.tflow.utils.util_function as uf3d
 
 
 class ModelFactory:
     def __init__(self, batch_size, input_shape, anchors_per_scale,
-                 backbone_name=cfg.Architecture.BACKBONE,
-                 neck_name=cfg.Architecture.NECK,
-                 head_name=cfg.Architecture.HEAD,
-                 backbone_conv_args=cfg.Architecture.BACKBONE_CONV_ARGS,
-                 neck_conv_args=cfg.Architecture.NECK_CONV_ARGS,
-                 head_conv_args=cfg.Architecture.HEAD_CONV_ARGS,
-                 num_anchors_per_scale=cfg.ModelOutput.NUM_ANCHORS_PER_SCALE,
-                 pred_composition=cfg.ModelOutput.PRED_HEAD_COMPOSITION,
-                 pred3d_composition=cfg.ModelOutput.PRED_3D_HEAD_COMPOSITION,
-                 out_channels=cfg.ModelOutput.NUM_MAIN_CHANNELS,
+                 backbone_name=cfg3d.Architecture.BACKBONE,
+                 neck_name=cfg3d.Architecture.NECK,
+                 head_name=cfg3d.Architecture.HEAD,
+                 backbone_conv_args=cfg3d.Architecture.BACKBONE_CONV_ARGS,
+                 neck_conv_args=cfg3d.Architecture.NECK_CONV_ARGS,
+                 head_conv_args=cfg3d.Architecture.HEAD_CONV_ARGS,
+                 num_anchors_per_scale=cfg3d.ModelOutput.NUM_ANCHORS_PER_SCALE,
+                 pred_composition=cfg3d.ModelOutput.PRED_HEAD_COMPOSITION,
+                 pred3d_composition=cfg3d.ModelOutput.PRED_3D_HEAD_COMPOSITION,
+                 out_channels=cfg3d.ModelOutput.NUM_MAIN_CHANNELS,
                  training=True
                  ):
         self.batch_size = batch_size
@@ -48,31 +50,37 @@ class ModelFactory:
     def get_model(self):
         backbone_model = back.backbone_factory(self.backbone_name, self.backbone_conv_args, self.training)
         neck_model = neck.neck_factory(self.neck_name, self.neck_conv_args, self.training,
-                                       self.num_anchors_per_scale, self.out_channels)
+                                       self.num_anchors_per_scale, self.out_channels, None, None)
         head_model = head2d.head_factory(self.head_name, self.head_conv_args, self.training, self.num_anchors_per_scale,
-                                         self.pred_composition)
+                                         self.pred_composition, None, None)
         head3d_model = head3d.head_factory(self.head_name, self.head_conv_args, self.training,
                                            self.num_anchors_per_scale, self.pred3d_composition)
 
-        input_tensor = tf.keras.layers.Input(shape=self.input_shape, batch_size=self.batch_size)
+        input_tensor1 = tf.keras.layers.Input(shape=self.input_shape, batch_size=self.batch_size)
+        input_tensor2 = tf.keras.layers.Input(shape=(3, 4), batch_size=self.batch_size)
+        input_tensor = {"image": input_tensor1, "intrinsic": input_tensor2}
 
-        backbone_features = backbone_model(input_tensor)
+        backbone_features = backbone_model(input_tensor["image"])
         neck_features = neck_model(backbone_features)
 
         head_features = head_model(neck_features)
+        output_features = dict()
+        output_features["feat2d_logit"] = uf3d.merge_and_slice_features(head_features, False, "feat2d")
+        output_features["feat2d"] = decoder2d.FeatureDecoder(self.anchors_per_scale).decode(output_features["feat2d_logit"])
 
-        output_features = {"inst": {}, "feat2d": [], "feat3d": [], "raw_feat": []}
-        decode_2d_features = decoder2d.FeatureDecoder(self.anchors_per_scale)
-        decode_3d_features = decoder3d.FeatureDecoder(self.anchors_per_scale)
-        feature_scales = [scale for scale in head_features.keys() if "feature" in scale]
-        for i, scale in enumerate(feature_scales):
-            output_features["feat2d"].append(decode_2d_features(head_features[scale], i))
-            if cfg.ModelOutput.FEAT_RAW:
-                output_features["raw_feat"].append(head_features[scale])
-                # output_features["backraw"].append(backbone_features[scale])
-        head3d_features = head3d_model(neck_features, output_features["feat2d"])
-        for i, scale in enumerate(feature_scales):
-            output_features["feat3d"].append(decode_3d_features(head3d_features[scale], i))
+        head3d_features = head3d_model(neck_features, output_features["feat2d"]["yxhw"])
+        output_features["feat3d_logit"] = uf3d.merge_and_slice_features(head3d_features, False, "feat3d")
+        output_features["feat3d"] = decoder3d.FeatureDecoder().decode(output_features["feat3d_logit"],
+                                                                      input_tensor["intrinsic"],
+                                                                      output_features["feat2d"]["yxhw"])
+        for key in output_features.keys():
+            for slice_key in output_features[key].keys():
+                if slice_key != "merged":
+                    for scale_index in range(len(output_features[key][slice_key])):
+                        output_features[key][slice_key][scale_index] = uf3d.merge_dim_hwa(output_features[key][slice_key][scale_index])
+        if cfg.ModelOutput.FEAT_RAW:
+            output_features["bkbn_feat"] = backbone_features
+            output_features["neck_feat"] = neck_features
         yolo_model = tf.keras.Model(inputs=input_tensor, outputs=output_features, name="yolo_model")
         return yolo_model
 

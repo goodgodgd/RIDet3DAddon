@@ -117,9 +117,9 @@ class VisualLog2d(VisualLog):
         gt_obj_imgs = []
         pred_obj_imgs = []
 
-        org_img = bev_img.copy()
-        gt_object_per_image = self.convert_img(gt_object_feature[batch_idx], feat_shape, org_img)
-        pred_object_per_image = self.convert_img(pred_objectness_feat[batch_idx], feat_shape, org_img)
+        bev_img = bev_img.copy()
+        gt_object_per_image = self.convert_img(gt_object_feature[batch_idx], feat_shape, bev_img)
+        pred_object_per_image = self.convert_img(pred_objectness_feat[batch_idx], feat_shape, bev_img)
         gt_obj_imgs.append(gt_object_per_image)
         pred_obj_imgs.append(pred_object_per_image)
         gt_obj_img = np.concatenate(gt_obj_imgs, axis=1)
@@ -127,12 +127,12 @@ class VisualLog2d(VisualLog):
         obj_img = np.concatenate([pred_obj_img, gt_obj_img], axis=0)
         return obj_img
 
-    def convert_img(self, feature, feat_shape, org_img):
+    def convert_img(self, feature, feat_shape, bev_img):
         feature_image = feature.reshape(feat_shape) * 255
         if feature_image.shape[-1] != 3:
             feature_image = cv2.cvtColor(feature_image, cv2.COLOR_GRAY2BGR)
-        feature_image = cv2.resize(feature_image, (1280, 512), interpolation=cv2.INTER_NEAREST)
-        feature_image = org_img + feature_image
+        feature_image = cv2.resize(feature_image, bev_img.shape[:2], interpolation=cv2.INTER_NEAREST)
+        feature_image = bev_img + feature_image
         feature_image[-1, :] = [255, 255, 255]
         feature_image[:, -1] = [255, 255, 255]
         return feature_image

@@ -6,7 +6,7 @@ import RIDet3DAddon.torch.config_dir.parameter_pool as params
 
 class Paths:
     RESULT_ROOT = "/home/cheetah/kim_workspace"
-    DATAPATH = "/media/cheetah/IntHDD/kim_result7/deg_0"
+    DATAPATH = "/media/cheetah/IntHDD/kim_result8/deg_0"
     CHECK_POINT = op.join(RESULT_ROOT, "ckpt")
     CONFIG_FILENAME = '/home/cheetah/kim_workspace/new/RILabDetector_torch/RIDet3DAddon/torch/config.py'
     META_CFG_FILENAME = '/home/cheetah/kim_workspace/new/RILabDetector_torch/RIDet3DAddon/torch/config_dir/meta_config.py'
@@ -20,7 +20,7 @@ class Datasets:
         PATH = "/media/cheetah/IntHDD/datasets/kitti_detection/data_object_image_2/training"
         ORIGIN_PATH = "/media/cheetah/IntHDD/datasets/kitti_detection/data_object_image_2/training/image_2"
 
-        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist", "Don't Care"]
+        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Van","Truck" ,"Cyclist", "Don't Care"]
         CATEGORY_REMAP = {}
         # CATEGORIES_TO_USE = ["Pedestrian", "Car", "Van", "Truck", "Cyclist", "DontCare",  "Person_sitting"]
         # CATEGORY_REMAP = {}
@@ -107,7 +107,7 @@ class Train:
 
 
 class Validation:
-    TP_IOU_THRESH = [1, 0.5, 0.5, 0.5]
+    TP_IOU_THRESH = [1, 0.5, 0.7, 0.5, 0.7, 0.5]
     DISTANCE_LIMIT = 25
     VAL_EPOCH = "latest"
     MAP_TP_IOU_THRESH = [0.7]
@@ -115,9 +115,9 @@ class Validation:
 
 
 class NmsInfer:
-    MAX_OUT = [0, 6, 11, 3]
-    IOU_THRESH = [0, 0.67, 0.67, 0.42]
-    SCORE_THRESH = [1, 0.31, 0.26, 0.16]
+    MAX_OUT = [0, 6, 11, 3,10,10]
+    IOU_THRESH = [0, 0.67, 0.67, 0.67, 0.67, 0.42]
+    SCORE_THRESH = [1, 0.31, 0.26, 0.31, 0.26, 0.16]
 
 
 class NmsOptim:

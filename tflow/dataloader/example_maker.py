@@ -1,9 +1,9 @@
 import numpy as np
 import cv2
 
-import dataloader.data_util as tu
-import dataloader.preprocess as pr
-import config as cfg
+import RIDet3DAddon.tflow.dataloader.data_util as tu
+import RIDet3DAddon.tflow.dataloader.preprocess as pr
+import RIDet3DAddon.config as cfg
 
 
 class ExampleMaker:
@@ -28,9 +28,11 @@ class ExampleMaker:
         example = dict()
         example["image"] = self.data_reader.get_image(index)
         example["depth"] = self.data_reader.get_depth(index)
+        example["intrinsic"] = self.data_reader.get_intrinsic(index)
         raw_hw_shape = example["image"].shape[:2]
         bboxes2d, bboxes3d, categories = self.data_reader.get_bboxes(index, raw_hw_shape)
-        example["bboxes2d"], example["bboxes3d"], example["dontcare"] = self.merge_box_and_category(bboxes2d, bboxes3d, categories)
+        # Do NOT use dontcares
+        example["inst2d"], example["inst3d"], _ = self.merge_box_and_category(bboxes2d, bboxes3d, categories)
         example = self.preprocess_example(example)
         if index % 100 == 10:
             self.show_example(example)
@@ -56,7 +58,7 @@ class ExampleMaker:
         return bboxes2d, bboxes3d, dontcare
 
     def show_example(self, example):
-        image = tu.draw_boxes(example["image"], example["bboxes2d"], self.category_names)
+        image = tu.draw_boxes(example["image"], example["inst2d"], self.category_names)
         depth = example["depth"]
         depth[depth > self.max_depth] = self.max_depth
         depth = cv2.applyColorMap(depth.astype(np.uint8)*5, cv2.COLORMAP_TURBO)

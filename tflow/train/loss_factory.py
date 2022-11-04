@@ -1,18 +1,21 @@
-from train.loss_pool import *
-import train.loss_pool as loss
-import utils.util_function as uf
-import config as cfg
+import utils.tflow.util_function as uf
+from RIDet3DAddon.tflow.train.loss_pool import *
+import RIDet3DAddon.tflow.utils.util_function as uf3d
+import RIDet3DAddon.tflow.model.encoder_3d as encoder_3d
+import RIDet3DAddon.config as cfg3d
 
 
 class IntegratedLoss:
     def __init__(self, loss_weights, valid_category):
-        self.use_ignore_mask = cfg.Train.IGNORE_MASK
+        self.loss_names = [key for key in loss_weights.keys()]
+        self.use_ignore_mask = cfg3d.Train.IGNORE_MASK
         self.loss_weights = loss_weights
-        self.iou_aware = cfg.ModelOutput.IOU_AWARE
-        self.num_scale = len(cfg.ModelOutput.FEATURE_SCALES)
+        self.iou_aware = cfg3d.ModelOutput.IOU_AWARE
+        self.num_scale = len(cfg3d.ModelOutput.FEATURE_SCALES)
         # self.valid_category: binary mask of categories, (1, 1, K)
         self.valid_category = uf.convert_to_tensor(valid_category, 'float32')
         self.scaled_loss_objects = self.create_scale_loss_objects(loss_weights)
+        self.encoder3d = encoder_3d.FeatureEncoder()
 
     def create_scale_loss_objects(self, loss_weights):
         loss_objects = dict()
@@ -21,19 +24,17 @@ class IntegratedLoss:
         return loss_objects
 
     def __call__(self, features, predictions):
-        grtr_slices = uf.merge_and_slice_features(features, True)
-        pred_slices = uf.merge_and_slice_features(predictions, False)
         total_loss = 0
         loss_by_type = {loss_name: 0 for loss_name in self.loss_weights}
+        # features["feat3d_logit"] = self.encoder3d.inverse(features["feat3d"], features["intrinsic"], predictions["feat2d"]["yxhw"])
         for scale in range(self.num_scale):
-            auxi = self.prepare_box_auxiliary_data(grtr_slices["feat"], grtr_slices["inst"]["bboxes"],
-                                                   pred_slices["feat"], scale)
+            auxi = self.prepare_box_auxiliary_data(features, predictions, scale)
             for loss_name, loss_object in self.scaled_loss_objects.items():
                 loss_map_suffix = loss_name + "_map"
                 if loss_map_suffix not in loss_by_type:
                     loss_by_type[loss_map_suffix] = []
 
-                scalar_loss, loss_map = loss_object(grtr_slices["feat"], pred_slices["feat"], auxi, scale)
+                scalar_loss, loss_map = loss_object(features, predictions, auxi, scale)
                 weight = self.loss_weights[loss_name][0][scale]
                 total_loss += scalar_loss * weight
                 loss_by_type[loss_name] += scalar_loss
@@ -41,25 +42,30 @@ class IntegratedLoss:
 
         return total_loss, loss_by_type
 
-    def prepare_box_auxiliary_data(self, grtr_feat, grtr_boxes, pred_feat, scale):
+    def prepare_box_auxiliary_data(self, grtr, pred, scale):
         auxiliary = dict()
         # As object_count is used as a denominator, it must NOT be 0.
-        auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr_feat["object"][scale]), 1)
+        auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["feat2d"]["object"][scale]), 1)
         auxiliary["valid_category"] = self.valid_category
-        auxiliary["ignore_mask"] = self.get_ignore_mask(grtr_boxes, pred_feat, scale)
-        return auxiliary
-
-    def prepare_lane_auxiliary_data(self, grtr, pred):
-        auxiliary = dict()
-        # As object_count is used as a denominator, it must NOT be 0.
-        auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["object"]), 1)
-        auxiliary["valid_category"] = self.valid_category
+        auxiliary["ignore_mask"] = self.get_ignore_mask(grtr["inst2d"], pred["feat2d"], scale)
+        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"], grtr["intrinsic"], pred["feat2d"]["yxhw"])
         return auxiliary
 
     def get_ignore_mask(self, grtr, pred, scale):
         if not self.use_ignore_mask:
             return 1
+        # b, h, w, a, _ = pred["yxhw"][scale].shape
+        # merged_pred = uf3d.merge_dim_hwa(pred["yxhw"][scale])
         iou = uf.compute_iou_general(pred["yxhw"][scale], grtr["yxhw"])
         best_iou = uf.reduce_max(iou, axis=-1)
         ignore_mask = uf.cast(best_iou < 0.65, dtype='float32')
+        # ignore_mask = tf.reshape(ignore_mask, (b, h, w, a))
         return ignore_mask
+
+    def merge_hwa_features(self, features):
+        for key in features.keys():
+            if "feat" in key:
+                for sub_key, sub_value in features[key].items():
+                    for scale_index, scale_value in enumerate(sub_value):
+                        features[key][sub_key][scale_index] = uf3d.merge_dim_hwa(scale_value)
+        return features

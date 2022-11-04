@@ -44,7 +44,10 @@ class KittiBevMaker(KittiReader):
                (point_cloud[:, 0] < self.xy_range[1]) & \
                (point_cloud[:, 1] > self.xy_range[2]) & \
                (point_cloud[:, 1] < self.xy_range[3])
-        point_cloud = point_cloud[mask, :]
+        mark2 = (np.arctan2(point_cloud[:, 1] , point_cloud[:, 0]) < (55 * np.pi / 180) ) *\
+                (np.arctan2(point_cloud[:, 1] , point_cloud[:, 0]) >-(55 * np.pi / 180))
+
+        point_cloud = point_cloud[mask * mark2, :]
         points = point_cloud[:, :3]
         # lidar_height = plane_model[3]
         # points[:, 2] += lidar_height
@@ -234,7 +237,7 @@ def save_txt(save_dirctory, lines, file_name):
 def make_kitti_to_bev():
     path = cfg3d.Datasets.Kittibev.PATH
     tilt_angle = cfg3d.Datasets.Kittibev.TILT_ANGLE
-    save_path = '/media/cheetah/IntHDD/kim_result7'
+    save_path = '/home/user/4TB/kim_result8'
     split = "train"
     deg = int(tilt_angle * (180 / np.pi))
     print(deg)
@@ -259,6 +262,7 @@ def make_kitti_to_bev():
         image, rotated = bev_make.get_bev_image(i)
 
         bev_box, category, rotated_box = bev_make.get_bev_box(i)
+
 
         if bev_box is None:
             continue

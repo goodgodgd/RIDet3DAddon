@@ -1,11 +1,10 @@
 import tensorflow as tf
 
-from model.model_util import PriorProbability
 from utils.util_class import MyExceptionToCatch
-import config as cfg
-import model.model_util as mu
-import utils.util_function as uf
-import config_dir.util_config as uc
+import RIDet3DAddon.config as cfg
+import model.tflow.model_util as mu
+import utils.tflow.util_function as uf
+import RIDet3DAddon.tflow.config_dir.util_config as uc
 
 
 def head_factory(output_name, conv_args, training, num_anchors_per_scale, pred_composition):
@@ -25,16 +24,15 @@ class HeadBase:
         self.conv2d_s2 = mu.CustomConv2D(kernel_size=3, strides=2, **conv_args)
         self.conv2d_k1na = mu.CustomConv2D(kernel_size=1, strides=1, activation=False, bn=False, scope="head")
         self.conv2d_output = mu.CustomConv2D(kernel_size=1, strides=1, activation=False, scope="output", bn=False)
-        self.pool = tf.keras.layers.AvgPool2D(pool_size=(3, 3), padding='valid', strides=(1, 1))
+        self.align_conv2d = mu.CustomConv2D(kernel_size=3, padding="valid", strides=1, **conv_args)
         self.num_anchors_per_scale = num_anchors_per_scale
         self.pred_composition = pred_composition
 
     def feature_align(self, features, decode):
-        aligned_feature = dict()
-        for scale, (key, feature) in enumerate(features.items()):
+        aligned_feature = list()
+        for scale, feature in enumerate(features):
             b, h, w, c = feature.shape
-            instance_bbox = tf.reshape(uf.slice_feature(decode[scale], uc.get_channel_composition(False))["yxhw"],
-                                       (b*h*w, -1))
+            instance_bbox = tf.reshape(decode[scale], (b*h*w, -1))
             # TODO batch_map create broadcast
             batch_map = list()
             for i in tf.range(b):
@@ -45,9 +43,9 @@ class HeadBase:
             # instance_bbox [b*h*w, c]
             # batch_map : tf.zeros(feature.shape[0])
             align_feature = tf.image.crop_and_resize(feature, instance_bbox, batch_map, (3, 3))
-            pool_feature = self.pool(align_feature)
+            align_feature = self.align_conv2d(align_feature, c)
             # align_feature [b*h*w, crop_height, crop_width, c]
-            aligned_feature[key] = tf.reshape(pool_feature, (b, h, w, c))
+            aligned_feature.append(tf.reshape(align_feature, (b, h, w, c)))
 
         return aligned_feature
 
@@ -82,8 +80,8 @@ class DoubleOutput3d(HeadBase):
 
     def __call__(self, input_features, decode_features):
         features = self.feature_align(input_features, decode_features)
-        output_features = {}
-        for scale, feature in features.items():
+        output_features = list()
+        for feature in features:
             conv_common = self.conv2d_k1(feature, 256)
             features = []
             for key, channel in self.pred_composition.items():
@@ -92,8 +90,8 @@ class DoubleOutput3d(HeadBase):
                 feat = self.conv2d_k1na(conv_out, channel * self.num_anchors_per_scale)
                 features.append(feat)
             b, h, w, c = features[0].shape
-            output_features[scale] = tf.concat(features, axis=-1)
-            output_features[scale] = tf.reshape(output_features[scale], (b, h, w, self.num_anchors_per_scale, -1))
+            output_feature = tf.concat(features, axis=-1)
+            output_features.append(tf.reshape(output_feature, (b, h, w, self.num_anchors_per_scale, -1)))
         return output_features
 
 
