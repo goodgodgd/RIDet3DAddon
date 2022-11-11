@@ -31,14 +31,12 @@ class HistoryLog:
         loggers = dict()
         if "box_2d" in columns:
             loggers["box_2d"] = LogMeanLoss("box_2d")
-        if "pos_object" in columns:
-            loggers["pos_object"] = LogMeanLoss("pos_object")
-        if "neg_object" in columns:
-            loggers["neg_object"] = LogMeanLoss("neg_object")
-        if "category_2d" in columns:
-            loggers["category_2d"] = LogMeanLoss("category_2d")
-        if "category_3d" in columns:
-            loggers["category_3d"] = LogMeanLoss("category_3d")
+        if "object" in columns:
+            loggers["object"] = LogMeanLoss("object")
+        # if "neg_object" in columns:
+        #     loggers["neg_object"] = LogMeanLoss("neg_object")
+        if "category" in columns:
+            loggers["category"] = LogMeanLoss("category")
         if "yx" in columns:
             loggers["yx"] = LogMeanLoss("yx")
         if "hwl" in columns:

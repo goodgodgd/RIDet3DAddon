@@ -100,14 +100,14 @@ class TotalAugment:
             # elif is_resize:
             #     ratio = augment_data["replay"]["transforms"][1]["transforms"][1]["params"]["scale"]
             if is_flip:
-                flip_theta = np.pi - data["inst3d"][..., -2]
+                flip_theta = np.pi - data["inst3d"][..., -3]
                 for i, flip_data in enumerate(flip_theta):
                     # check range
                     if flip_data > np.pi:
-                        flip_theta[i] += 2 * np.pi
-                    if flip_data < np.pi:
                         flip_theta[i] -= 2 * np.pi
-                aug_data["inst3d"][..., -2] = flip_theta
+                    if flip_data < -np.pi:
+                        flip_theta[i] += 2 * np.pi
+                aug_data["inst3d"][..., -3] = flip_theta
                 # aug_data["inst3d"][..., 1] = -data["inst3d"][..., 1]
                 prj_box = self.project_to_image(data["inst3d"][..., :2], data["remainder"][..., :1], data["intrinsic"])
                 prj_box[..., 1] = 1 - prj_box[..., 1]

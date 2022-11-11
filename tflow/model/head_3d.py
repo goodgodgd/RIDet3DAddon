@@ -41,6 +41,11 @@ class HeadBase:
             # instance_bbox [b*h*w, c]
             # batch_map : tf.zeros(feature.shape[0])
             align_feature = tf.image.crop_and_resize(feature, instance_bbox, batch_map, (3, 3))
+            # align_feat1 = self.conv2d_k1(align_feature, c)
+            # align_feat2 = self.align_conv2d(align_feat1, c/2)
+            # align_feat3 = self.conv2d_k1(align_feat2, c)
+            # # align_feature [b*h*w, crop_height, crop_width, c]
+            # aligned_feature.append(tf.reshape(align_feat3, (b, h, w, c)))
             align_feature = self.align_conv2d(align_feature, c)
             # align_feature [b*h*w, crop_height, crop_width, c]
             aligned_feature.append(tf.reshape(align_feature, (b, h, w, c)))

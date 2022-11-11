@@ -43,9 +43,9 @@ class SavePred:
                 text_to_write += (
                             '{} -1 -1 {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} {:.6f} '
                             + '{:.6f} {:.6f}\n').format(ctgr, alpha[0], tlbr[1] * im_shape[1],
-                                                        tlbr[0] * im_shape[0] - (hwl[0]/2),
+                                                        tlbr[0] * im_shape[0],
                                                         tlbr[3] * im_shape[1], tlbr[2] * im_shape[0], hwl[0], hwl[1],
-                                                        hwl[2], yx[1], yx[0], z[0], ry[0], score[0])
+                                                        hwl[2], yx[1], yx[0] + (hwl[0]/2), z[0], ry[0], score[0])
             file.write(text_to_write)
             file.close()
 

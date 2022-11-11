@@ -59,8 +59,7 @@ class Logger:
             # nms_3d_box = self.nms(pred, is_3d=True)
             # pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
             # pred["inst3d"] = uf.convert_tensor_to_numpy(pred["inst3d"])
-            self.visual_logger(step, grtr, pred)
-            # self.visual_logger_3d(step, grtr, pred)
+            # self.visual_logger(step, grtr, pred)
             self.save_pred(step, grtr, pred)
 
     def check_nan(self, features, feat_name):
