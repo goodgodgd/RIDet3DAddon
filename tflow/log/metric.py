@@ -147,8 +147,8 @@ def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
     grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
     grtr_tp = {key: val * grtr_tp_mask for key, val in grtr["inst3d"].items()}
     grtr_fn = {key: val * grtr_fn_mask for key, val in grtr["inst3d"].items()}
-    grtr_tp["z"] = grtr["inst2d"]["z"] * grtr_tp_mask
-    grtr_fn["z"] = grtr["inst2d"]["z"] * grtr_fn_mask
+    grtr_tp["z"] = grtr["inst3d"]["z"] * grtr_tp_mask
+    grtr_fn["z"] = grtr["inst3d"]["z"] * grtr_fn_mask
     grtr_tp["iou"] = best_iou * grtr_tp_mask[..., 0]
     grtr_fn["iou"] = best_iou * grtr_fn_mask[..., 0]
     # last dimension rows where grtr_tp_mask == 0 are all-zero
@@ -156,8 +156,6 @@ def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
     pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
     pred_tp = {key: val * pred_tp_mask for key, val in pred["inst3d"].items()}
     pred_fp = {key: val * pred_fp_mask for key, val in pred["inst3d"].items()}
-    # pred_tp["z"] = metric2d["pred_tp"]["z"] * pred_tp_mask
-    # pred_fp["z"] = metric2d["pred_fp"]["z"] * pred_fp_mask
 
     return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn}
 
@@ -172,7 +170,7 @@ def compute_3d_iou(boxes1, boxes2, frame_idx, mask_1, mask_2):
 
 def extract_param(boxes, frame_idx, score_mask):
     hwl = boxes["inst3d"]["hwl"][frame_idx, :][score_mask]
-    xyz = np.stack([boxes["inst3d"]["yx"][frame_idx, :, 1], boxes["inst3d"]["yx"][frame_idx, :, 0], boxes["inst2d"]["z"][frame_idx, :, 0]],
+    xyz = np.stack([boxes["inst3d"]["yx"][frame_idx, :, 1], boxes["inst3d"]["yx"][frame_idx, :, 0], boxes["inst3d"]["z"][frame_idx, :, 0]],
                   axis=-1)[score_mask]
     theta = boxes["inst3d"]["theta"][frame_idx, :, 0][score_mask]
     return hwl, xyz, theta

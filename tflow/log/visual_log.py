@@ -8,10 +8,6 @@ from RIDet3DAddon.tflow.log.metric import split_true_false, split_tp_fp_fn_3d
 import utils.tflow.util_function as uf
 
 
-# class VisualLog:
-
-
-
 class VisualLog:
     def __init__(self, ckpt_path, epoch):
         self.grtr_log_keys = cfg.Train.LOG_KEYS
@@ -50,22 +46,6 @@ class VisualLog:
             bev_image = np.zeros((800, 500, 3), dtype=np.uint8)
             self.draw_2d_boxes(image_grtr, splits["2d"], grtr, pred, i, step, batch)
             self.draw_3d_boxes(image_grtr, splits["3d"], bev_image, grtr, pred, i, step, batch)
-            # image_grtr = self.draw_boxes(image_grtr, splits["grtr_tp"], i, self.grtr_log_keys, (0, 255, 0))
-            # image_grtr = self.draw_boxes(image_grtr, splits["grtr_fn"], i, self.grtr_log_keys, (0, 0, 255))
-            #
-            # image_pred = uf.to_uint8_image(grtr["image"][i]).numpy()
-            # image_pred = self.draw_boxes(image_pred, splits["pred_tp"], i, [], (0, 255, 0))
-            # image_pred = self.draw_boxes(image_pred, splits["pred_fp"], i, [], (0, 0, 255))
-            #
-            # vlog_image = np.concatenate([image_pred, image_grtr], axis=0)
-            # if self.visual_heatmap_path:
-            #     image_zero = uf.to_uint8_image(np.zeros_like(grtr["image"][0][..., :-1])).numpy()
-            #     self.draw_box_heatmap(grtr, pred, image_zero, i, step, batch)
-            # if step % 50 == 10:
-            #     cv2.imshow("detection_result", vlog_image)
-            #     cv2.waitKey(10)
-            # filename = op.join(self.vlog_path, f"{step * batch + i:05d}.jpg")
-            # cv2.imwrite(filename, vlog_image)
 
     def exapand_grtr_bbox(self, grtr, pred):
         grtr_boxes_3d = self.merge_scale_hwa(grtr["feat3d"])
@@ -82,7 +62,8 @@ class VisualLog:
         grtr_boxes_3d["pred_score"] = best_probs * pred_boxes_2d["object"]
 
         batch, _, __ = grtr["inst2d"]["yxhw"].shape
-        numbox = cfg.Validation.MAX_BOX
+        # numbox = cfg.Validation.MAX_BOX
+        numbox = grtr["inst2d"]["yxhw"].shape[1]
         objectness = grtr_boxes_2d["object"]
         for key in grtr_boxes_3d:
             features = []
@@ -262,6 +243,7 @@ class VisualLog:
     def imple_3d_draw_boxes(self, image, bev_image, bboxes, frame_idx, log_keys, tp_fp_color, gt_pr_color, intrinsic):
         valid_mask = bboxes["hwl"][frame_idx][:, 0] > 0  # (N,) h>0
         box_ctgr = bboxes["category"][frame_idx][valid_mask, 0].astype(np.int32)  # (N, 1)
+        occluded = bboxes["occluded"][frame_idx][valid_mask, 0].astype(np.int32)  # (N, 1)
         yx = bboxes["yx"][frame_idx][valid_mask]
         z = bboxes["z"][frame_idx][valid_mask]
         hwl = bboxes["hwl"][frame_idx][valid_mask]
@@ -273,7 +255,7 @@ class VisualLog:
         # box_ctgr = box_ctgr[valid_mask, 0].astype(np.int32)
         proj_box, proj_box_center, bev_box = self.extract_corner(intrinsic[frame_idx], yx, z, hwl, theta)
 
-        front_view = self.draw_cuboid(image, proj_box, proj_box_center, box_ctgr, z, tp_fp_color)
+        front_view = self.draw_cuboid(image, proj_box, proj_box_center, box_ctgr, occluded, z, tp_fp_color)
 
         bev_view = self.draw_bev(bev_image, bev_box, box_ctgr, gt_pr_color, iou)
 
@@ -314,7 +296,7 @@ class VisualLog:
             proj_box_center.append(center_point)
         return proj_box, proj_box_center, bev_box
 
-    def draw_cuboid(self, image, proj_box, proj_box_center, category, z, color):
+    def draw_cuboid(self, image, proj_box, proj_box_center, category, occluded, z, color):
         proj_box = np.array(proj_box)
         proj_box = (np.reshape(proj_box, (-1, 8, 2)) * image.shape[::-1][1:3]).astype(np.int32)
         proj_box = proj_box.tolist()
@@ -325,11 +307,12 @@ class VisualLog:
 
         for i, (point, center) in enumerate(zip(proj_box, proj_box_center)):
             annotation = "dontcare" if category[i] < 0 else f"{self.categories[category[i]]}"
+            occlude = occluded[i]
             depth = f"{z[..., 0][i]:.2f}"
-            image = self.draw_line(image, point, center, color, annotation, depth)
+            image = self.draw_line(image, point, center, color, annotation, occlude, depth)
         return image
 
-    def draw_line(self, image, line, center, color, annotation, depth):
+    def draw_line(self, image, line, center, color, annotation, occlude, depth):
         for i in range(4):
             image = cv2.line(image, line[i * 2], line[i * 2 + 1], color)
         for i in range(8):
@@ -337,6 +320,7 @@ class VisualLog:
         cv2.putText(image, annotation, (line[1][0], line[1][1]), cv2.FONT_HERSHEY_PLAIN, 1.0, color, 2)
         cv2.circle(image, (center[0][0], center[0][1]), 1, (255, 255, 0), 2)
         cv2.putText(image, depth, (center[0][0]+10, center[0][1]+10), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 0), 2)
+        cv2.putText(image, str(occlude), (line[0][0], line[1][1]), cv2.FONT_HERSHEY_PLAIN, 1.0, (255, 255, 0), 2)
         return image
 
     def draw_bev(self, image, bev_box, category, color, iou):

@@ -37,11 +37,12 @@ class TrainValBase:
                               f"total={total_loss:.3f}, "
                               f"box={loss_by_type['box_2d']:.3f}, "
                               f"object={loss_by_type['object']:.3f}, "
-                              f"category={loss_by_type['category_2d']:.3f}, "
+                              f"category={loss_by_type['category']:.3f}, "
                               f"yx={loss_by_type['yx']:.3f}, "
                               f"hwl={loss_by_type['hwl']:.3f}, "
                               f"theta={loss_by_type['theta']:.3f}, "
                               f"depth={loss_by_type['depth']:.3f}, "
+                              f"occluded={loss_by_type['occluded']:.3f}, "
                               )
 
             if step >= self.epoch_steps:

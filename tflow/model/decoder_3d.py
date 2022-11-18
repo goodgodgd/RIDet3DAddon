@@ -17,12 +17,16 @@ class FeatureDecoder:
         for scale_index in range(self.num_scale):
             box_yx_2d = self.decode_yx(feature["yx"][scale_index], feat_2d["yxhw"][scale_index])
             decoded["hwl"].append(self.decode_hwl(feature["hwl"][scale_index]))
-            # box_z = 10 * tf.exp(feature["z"][scale_index])
-            decoded["yx"].append(self.inverse_proj_to_3d(box_yx_2d, feat_2d["z"][scale_index], intrinsic))
-            # decoded["z"].append(box_z)
+            box_z = 10 * tf.exp(feature["z"][scale_index])
+            decoded["yx"].append(self.inverse_proj_to_3d(box_yx_2d, box_z, intrinsic))
+            decoded["z"].append(box_z)
             decoded["theta"].append(mu.sigmoid_with_margin(feature["theta"][scale_index], self.margin) * (np.pi / 2))
+            decoded["occluded"].append(tf.sigmoid(feature["occluded"][scale_index]))
             # TODO sum 2d category, 3d category
-            # decoded["category"].append(tf.nn.softmax(feature["category"][scale_index]))
+            # object_3d = tf.sigmoid(feature["object"][scale_index])
+            # category_3d = tf.sigmoid(feature["category"][scale_index])
+            # decoded["category"].append(tf.reduce_mean(tf.stack([feat_2d["category"][scale_index], category_3d], axis=-1), axis=-1))
+            # decoded["object"].append(tf.reduce_mean(tf.stack([feat_2d["object"][scale_index], object_3d], axis=-1), axis=-1))
             bbox_pred = [decoded[key][scale_index] for key in self.channel_compos]
             decoded["merged"].append(tf.concat(bbox_pred, axis=-1))
             assert decoded["merged"][scale_index].shape == feature["merged"][scale_index].shape

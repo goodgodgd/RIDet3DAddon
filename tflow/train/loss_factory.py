@@ -37,7 +37,7 @@ class IntegratedLoss:
                 scalar_loss, loss_map = loss_object(features, predictions, auxi, scale)
                 weight = self.loss_weights[loss_name][0][scale]
                 total_loss += scalar_loss * weight
-                loss_by_type[loss_name] += scalar_loss
+                loss_by_type[loss_name] += scalar_loss * weight
                 loss_by_type[loss_map_suffix].append(loss_map)
 
         return total_loss, loss_by_type

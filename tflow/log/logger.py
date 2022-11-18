@@ -8,6 +8,7 @@ from RIDet3DAddon.tflow.log.exhaustive_log import ExhaustiveLog
 from RIDet3DAddon.tflow.log.history_log import HistoryLog
 from RIDet3DAddon.tflow.log.visual_log import VisualLog
 from RIDet3DAddon.tflow.log.save_pred import SavePred
+from RIDet3DAddon.tflow.log.metric import count_true_positives
 import utils.tflow.util_function as uf
 import RIDet3DAddon.tflow.model.nms as nms
 import RIDet3DAddon.config as cfg
@@ -20,8 +21,6 @@ class Logger:
         self.exhaustive_logger = ExhaustiveLog(loss_names) if exhaustive_log else None
         self.save_pred = SavePred(op.join(ckpt_path, "result"))
         self.visual_logger = VisualLog(ckpt_path, epoch) if visual_log else None
-        # self.visual_logger_3d = VisualLog3d(ckpt_path, epoch) if visual_log else None
-        # self.visual_logger = VisualLog(ckpt_path, epoch)
         self.history_filename = op.join(ckpt_path, "history.csv")
         self.exhaust_path = op.join(ckpt_path, "exhaust_log")
         self.num_channel = cfg.ModelOutput.NUM_MAIN_CHANNELS
@@ -51,8 +50,9 @@ class Logger:
         if step == 0 and self.epoch == 0:
             structures = {"grtr": grtr, "pred": pred, "loss": loss_by_type}
             self.save_model_structure(structures)
-
-        self.history_logger(step, grtr, pred, loss_by_type, total_loss)
+        num_ctgr = pred["feat2d"]["category"][0].shape[-1]
+        metric = count_true_positives(grtr["inst2d"], pred["inst2d"], num_ctgr)
+        self.history_logger(step, grtr, pred, loss_by_type, total_loss, metric)
         # if self.exhaustive_logger:
         #     self.exhaustive_logger(step, grtr, pred, loss_by_type, total_loss)
         if self.visual_logger:
@@ -60,8 +60,8 @@ class Logger:
             # pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
             # pred["inst3d"] = uf.convert_tensor_to_numpy(pred["inst3d"])
             self.visual_logger(step, grtr, pred)
-            # self.visual_logger_3d(step, grtr, pred)
             self.save_pred(step, grtr, pred)
+            # self.analyze_save(step, grtr, pred)
 
     def check_nan(self, features, feat_name):
         if "merged" not in feat_name:

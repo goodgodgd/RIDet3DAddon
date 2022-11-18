@@ -100,18 +100,18 @@ class TotalAugment:
             # elif is_resize:
             #     ratio = augment_data["replay"]["transforms"][1]["transforms"][1]["params"]["scale"]
             if is_flip:
-                flip_theta = np.pi - data["inst3d"][..., -2]
+                flip_theta = np.pi - data["inst3d"][..., -4]
                 for i, flip_data in enumerate(flip_theta):
                     # check range
                     if flip_data > np.pi:
-                        flip_theta[i] += 2 * np.pi
-                    if flip_data < np.pi:
                         flip_theta[i] -= 2 * np.pi
-                aug_data["inst3d"][..., -2] = flip_theta
+                    if flip_data < -np.pi:
+                        flip_theta[i] += 2 * np.pi
+                aug_data["inst3d"][..., -4] = flip_theta
                 # aug_data["inst3d"][..., 1] = -data["inst3d"][..., 1]
-                prj_box = self.project_to_image(data["inst3d"][..., :2], data["remainder"][..., :1], data["intrinsic"])
+                prj_box = self.project_to_image(data["inst3d"][..., :2], data["inst3d"][..., 2:3], data["intrinsic"])
                 prj_box[..., 1] = 1 - prj_box[..., 1]
-                flip_data = self.inverse_proj_to_3d(prj_box, data["remainder"][..., :1], data["intrinsic"])
+                flip_data = self.inverse_proj_to_3d(prj_box, data["inst3d"][..., 2:3], data["intrinsic"])
                 aug_data["inst3d"][..., :2] = flip_data
             aug_data["bboxes"] = self.convert_coord(aug_data["bboxes"])
         return aug_data
