@@ -23,7 +23,7 @@ class FeatureDecoder:
             box_yx = self.decode_yx(feature["yxhw"][scale_index][..., :2])
             box_hw = self.decode_hw(feature["yxhw"][scale_index][..., 2:4], anchors_ratio)
             decoded["yxhw"].append(tf.concat([box_yx, box_hw], axis=-1))
-            # decoded["z"].append(tf.exp(feature["z"][scale_index]))
+            decoded["z"].append(tf.exp(feature["z"][scale_index]))
             # decoded["z"].append(1/tf.sigmoid(feature["z"][scale_index]))
             # decoded["z"].append(tf.math.log(feature["z"][scale_index]) / tf.math.log(0.5) * 10)
             decoded["category"].append(tf.sigmoid(feature["category"][scale_index]))

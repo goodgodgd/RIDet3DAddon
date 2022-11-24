@@ -113,24 +113,42 @@ class KittiReader(DatasetReaderBase):
         y2 = round(float(raw_label[7]))
         x2 = round(float(raw_label[6]))
         occluded = float(raw_label[2])
+        if occluded > 2:
+            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   -1
 
         h = float(raw_label[8])
         w = float(raw_label[9])
         l = float(raw_label[10])
         if (y2 - y1 < 1) or (x2 - x1 < 1):
             return None, None, None
-        # if category_name == "Car" and y2-y1 <= 40:
-        #     return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-        #            np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -2
-        # elif y2-y1 <= 25:
-        #     return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-        #            np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -2
         x3d = float(raw_label[11])
-        y3d = float(raw_label[12])
+        y3d = float(raw_label[12]) - (h/2)
         z = float(raw_label[13])
         theta = float(raw_label[14])
-        bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d-(h/2), x3d, z, h, w, l, theta, 1, occluded], dtype=np.float32)
+        if theta < 0:
+            theta += np.pi
+        if theta > np.pi:
+            theta -= np.pi
+        if z > 50.:
+            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   -1
+        if z <= 0.:
+            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   -1
+        if x3d == 0.:
+            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   -1
+        if y3d == 0.:
+            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+                   -1
+        bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, z, 1], dtype=np.float32)
+        bbox_3d = np.array([y3d, x3d, h, w, l, theta, occluded], dtype=np.float32)
         return bbox_2d, bbox_3d, category_name
 
     def load_calib_data(self, file):

@@ -105,49 +105,6 @@ class L1smooth(LossBase):
         return scalar_loss, l1_loss
 
 
-# class PosBoxObjectnessLoss(LossBase):
-#     def __init__(self, pos_weight):
-#         self.pos_weight = pos_weight
-#
-#     def __call__(self, grtr, pred, auxi, scale):
-#         """
-#         :param grtr: GT feature map slices of some scale, {'yxhw': (batch, HWA, 4), 'object', ..., 'category', ...}
-#         :param pred: pred. feature map slices of some scale, {'yxhw': (batch, HWA, 4), 'object', ..., 'category', ...}
-#         :param auxi: auxiliary data
-#         :return: objectness loss (batch, HWA)
-#         """
-#         grtr_obj = grtr["feat2d"]["object"][scale]
-#         pred_obj = pred["feat2d"]["object"][scale]
-#         obj_loss = tf.keras.losses.binary_crossentropy(grtr_obj, pred_obj, label_smoothing=0.04)
-#         # obj_soft_loss = tf.keras.losses.binary_crossentropy(auxi["soft_grtr"]["object"], pred_obj, label_smoothing=0.04)
-#         # obj_loss = ((obj_hard_loss * grtr_obj[..., 0]) + (obj_soft_loss * auxi["soft_grtr"]["object"][..., 0])) * self.pos_weight
-#         obj_positive = obj_loss * grtr_obj[..., 0] * self.pos_weight
-#         scalar_loss = tf.reduce_sum(obj_positive)
-#         # obj_negative = obj_loss * (1 - grtr_obj[..., 0]) * ignore_mask * self.neg_weight
-#         # scalar_loss = tf.reduce_sum(obj_positive) + tf.reduce_sum(obj_negative)
-#         return scalar_loss, obj_loss
-#
-#
-# class NegBoxObjectnessLoss(LossBase):
-#     def __init__(self, neg_weight):
-#         self.neg_weight = neg_weight
-#
-#     def __call__(self, grtr, pred, auxi, scale):
-#         """
-#         :param grtr: GT feature map slices of some scale, {'yxhw': (batch, HWA, 4), 'object', ..., 'category', ...}
-#         :param pred: pred. feature map slices of some scale, {'yxhw': (batch, HWA, 4), 'object', ..., 'category', ...}
-#         :param auxi: auxiliary data
-#         :return: objectness loss (batch, HWA)
-#         """
-#         grtr_obj = grtr["feat2d"]["object"][scale]
-#         pred_obj = pred["feat2d"]["object"][scale]
-#         obj_loss = tf.keras.losses.binary_crossentropy(grtr_obj, pred_obj, label_smoothing=0.04)
-#         conf_focal = tf.pow(grtr_obj - pred_obj, 2)
-#         # obj_positive = obj_loss * grtr_obj[..., 0] * self.pos_weight
-#         obj_negative = obj_loss * (1 - grtr_obj[..., 0]) * self.neg_weight * conf_focal[..., 0]
-#         scalar_loss = tf.reduce_sum(obj_negative)
-#         return scalar_loss, obj_loss
-
 class BoxObjectnessLoss(LossBase):
     def __init__(self, pos_weight, neg_weight):
         self.pos_weight = pos_weight
@@ -160,13 +117,14 @@ class BoxObjectnessLoss(LossBase):
         :param auxi: auxiliary data
         :return: objectness loss (batch, HWA)
         """
-        grtr_2d_obj = grtr["feat3d"]["object"][scale]
-        pred_2d_obj = pred["feat3d"]["object"][scale]
+        grtr_obj = grtr["feat2d"]["object"][scale]
+        pred_obj = pred["feat2d"]["object"][scale]
         ignore_mask = auxi["ignore_mask"]
-        conf_focal = tf.pow(grtr_2d_obj - pred_2d_obj, 2)
-        obj_loss = tf.keras.losses.binary_crossentropy(grtr_2d_obj, pred_2d_obj, label_smoothing=0.04) * conf_focal[..., 0]
-        obj_positive = obj_loss * grtr_2d_obj[..., 0] * self.pos_weight
-        obj_negative = obj_loss * (1 - grtr_2d_obj[..., 0]) * ignore_mask * self.neg_weight
+        conf_focal = tf.pow(grtr_obj - pred_obj, 2)
+        obj_loss = tf.keras.losses.binary_crossentropy(grtr_obj, pred_obj) * conf_focal[..., 0]
+        obj_positive = obj_loss * grtr_obj[..., 0] * self.pos_weight
+        # obj_negative = obj_loss * (1 - grtr_obj[..., 0]) * ignore_mask * self.neg_weight
+        obj_negative = obj_loss * (1 - grtr_obj[..., 0]) * self.neg_weight
         scalar_loss = tf.reduce_sum(obj_positive) + tf.reduce_sum(obj_negative)
         return scalar_loss, obj_loss
 
@@ -196,6 +154,9 @@ class CategoryLoss(LossBase):
 
 
 class MajorCategoryLoss(CategoryLoss):
+    # def __init__(self, feat_name):
+    #     self.feat_name = f"feat{feat_name}"
+
     def __call__(self, grtr, pred, auxi, scale):
         """
         :param grtr: GT feature map slices of some scale, {'yxhw': (batch, HWA, 4), 'object', ..., 'category', ...}
@@ -204,8 +165,8 @@ class MajorCategoryLoss(CategoryLoss):
         :return: category loss (batch, HWA, K)
         """
         object_mask, valid_category = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32), auxi["valid_category"]
-        scalar_loss, category_loss = self.compute_category_loss(grtr["feat3d"]["category"][scale],
-                                                                pred["feat3d"]["category"][scale],
+        scalar_loss, category_loss = self.compute_category_loss(grtr["feat2d"]["category"][scale],
+                                                                pred["feat2d"]["category"][scale],
                                                                 object_mask * valid_category)
         return scalar_loss, category_loss
 
@@ -222,7 +183,8 @@ class HWLLoss(LossBase):
     def box_preprocess(self, pred_logit, grtr, pred, scale):
         h = pred_logit["hwl"][scale][..., :1]
         wl = pred_logit["hwl"][scale][..., 1:3]
-        M = tf.cast(tf.cos(2*(pred["theta"][scale] - grtr["theta"][scale])) > 0, dtype=tf.float32)
+        # M = tf.cast(tf.cos(2*(pred["theta"][scale] - grtr["theta"][scale])) > 0, dtype=tf.float32)
+        M = tf.cast(tf.cos(2*(grtr["theta"][scale] - pred["theta"][scale])) > 0, dtype=tf.float32)
         lw = tf.concat([pred_logit["hwl"][scale][..., 2:3], pred_logit["hwl"][scale][..., 1:2]], axis=-1)
         wl = M * wl + (1 - M) * lw
         pred_logit["hwl"][scale] = tf.concat([h, wl], axis=-1)
@@ -241,14 +203,8 @@ class YXLoss(LossBase):
 class DepthLoss(LossBase):
     def __call__(self, grtr, pred, auxi, scale):
         object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
-        grtr_depth = grtr["feat3d"]["z"][scale]
-        valid_depth = tf.cast(grtr_depth > 0, dtype=tf.float32)
-        pred_depth = pred["feat3d"]["z"][scale]
-        # conf_focal = tf.pow(grtr_depth - pred_depth, 2)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        depth_loss = huber_loss(grtr_depth, pred_depth) * object_mask[..., 0] * valid_depth[..., 0]
-        # depth_loss = (tf.abs(grtr["feat2d"]["z"][scale] - pred["feat2d"]["z"][scale]) / tf.maximum(grtr["feat2d"]["z"][scale], 1))[..., 0]
-        # depth_loss *= object_mask[..., 0]
+        depth_loss = huber_loss(grtr["feat2d"]["z"][scale], pred["feat2d"]["z"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(depth_loss)
         return scalar_loss, depth_loss
 

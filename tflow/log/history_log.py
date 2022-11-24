@@ -15,12 +15,12 @@ class HistoryLog:
         self.summary = dict()
         self.iou3d = Compute3DIoU()
 
-    def __call__(self, step, grtr, pred, loss, total_loss, metric):
+    def __call__(self, step, grtr, pred, loss, total_loss):
         result = dict()
         for key, log_object in self.loggers.items():
             result[key] = log_object(grtr, pred, loss)
-        # num_ctgr = pred["feat2d"]["category"][0].shape[-1]
-        # metric = count_true_positives(grtr["inst2d"], pred["inst2d"], num_ctgr)
+        num_ctgr = pred["feat2d"]["category"][0].shape[-1]
+        metric = count_true_positives(grtr["inst2d"], pred["inst2d"], num_ctgr)
         result.update({"total_loss": total_loss.numpy()})
         result.update(metric)
         # metric_3d = count_true_positives_3d(grtr["inst3d"], pred["inst3d"], grtr["inst2d"]["object"], num_ctgr)
@@ -35,8 +35,10 @@ class HistoryLog:
             loggers["object"] = LogMeanLoss("object")
         # if "neg_object" in columns:
         #     loggers["neg_object"] = LogMeanLoss("neg_object")
-        if "category" in columns:
-            loggers["category"] = LogMeanLoss("category")
+        if "category_2d" in columns:
+            loggers["category_2d"] = LogMeanLoss("category_2d")
+        if "category_3d" in columns:
+            loggers["category_3d"] = LogMeanLoss("category_3d")
         if "yx" in columns:
             loggers["yx"] = LogMeanLoss("yx")
         if "hwl" in columns:
