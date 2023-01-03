@@ -96,13 +96,13 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "test_1123_v3"
+    CKPT_NAME = "test_1202_v1"
     MODE = ["eager", "graph", "distribute"][1]
-    AUGMENT_PROBS = None
-    # AUGMENT_PROBS = {"Flip": 1.0}
+    # AUGMENT_PROBS = None
+    AUGMENT_PROBS = {"Flip": 1.0}
     # AUGMENT_PROBS = {"ColorJitter": 0.5, "Flip": 1.0, "CropResize": 1.0, "Blur": 0.2}
-    # DATA_BATCH_SIZE = 4
-    DATA_BATCH_SIZE = 1
+    DATA_BATCH_SIZE = 4
+    # DATA_BATCH_SIZE = 1
     BATCH_SIZE = DATA_BATCH_SIZE * 2 if AUGMENT_PROBS else DATA_BATCH_SIZE
     GLOBAL_BATCH = BATCH_SIZE
     TRAINING_PLAN = params.TrainingPlan.KITTI_SIMPLE

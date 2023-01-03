@@ -63,8 +63,8 @@ class Logger:
             grtr_bbox_augmented = self.exapand_grtr_bbox(grtr, pred)
             splits["2d"] = split_true_false(grtr_bbox_augmented["inst2d"], pred["inst2d"], cfg.Validation.TP_IOU_THRESH)
             splits["3d"] = split_tp_fp_fn_3d(grtr_bbox_augmented, pred, cfg.Validation.TP_IOU_THRESH)
-            self.visual_logger(step, grtr, pred, splits)
-            self.save_pred(step, grtr, pred)
+            # self.visual_logger(step, grtr, pred, splits)
+            # self.save_pred(step, grtr, pred)
             self.save_analyze(step, grtr, pred, splits)
 
     def check_nan(self, features, feat_name):

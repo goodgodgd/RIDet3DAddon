@@ -158,12 +158,16 @@ def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
     grtr_tp["iou"] = best_3d_iou[..., np.newaxis] * grtr_tp_mask
     grtr_fn["iou"] = best_3d_iou[..., np.newaxis] * grtr_fn_mask
     pred_tp_mask = indices_to_binary_mask(best_3d_idx, grtr_tp_mask, M)
+    pred_tp_mask_test = np.take_along_axis(pred_tp_mask[..., 0], best_3d_idx, 1)
     pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
     pred_tp = {key: val * pred_tp_mask for key, val in pred["inst3d"].items()}
     pred_fp = {key: val * pred_fp_mask for key, val in pred["inst3d"].items()}
+    pred_tp2 = pred_tp["yx"].copy()
+    pred_fp2 = pred_fp["yx"].copy()
     for key in pred_tp.keys():
-        pred_tp[key] = np.take_along_axis(pred_tp[key], best_3d_idx[..., np.newaxis], 1)
-        pred_fp[key] = np.take_along_axis(pred_fp[key], best_3d_idx[..., np.newaxis], 1)
+        pred_tp[key] = np.take_along_axis(pred_tp[key], best_3d_idx[..., np.newaxis], 1) * grtr_tp_mask
+        pred_fp[key] = np.take_along_axis(pred_fp[key], best_3d_idx[..., np.newaxis], 1) * grtr_fn_mask
+
 
     iou2d = uf.compute_iou_general(grtr["inst2d"]["yxhw"], pred["inst2d"]["yxhw"]).numpy()  # (batch, N, M)
     best_iou2d = np.max(iou2d, axis=-1)
