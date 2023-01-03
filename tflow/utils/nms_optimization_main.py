@@ -6,15 +6,16 @@ from timeit import default_timer as timer
 from matplotlib import pyplot as plt
 
 import settings
-import config as cfg
-import config_dir.util_config as uc
-from dataloader.dataset_reader import DatasetReader
-from model.framework.model_factory import ModelFactory
-import utils.util_function as uf
+import RIDet3DAddon.config as cfg3d
+import RIDet3DAddon.tflow.config_dir.util_config as uc3d
+from dataloader.tflow.dataset_reader import DatasetReader
+from RIDet3DAddon.tflow.model.model_factory import ModelFactory
+import RIDet3DAddon.tflow.utils.util_function as uf3d
+import utils.tflow.util_function as uf
 import train.framework.train_util as tu
-import model.framework.model_util as mu
-from log.metric import count_true_positives
-from train.feature_generator import FeatureMapDistributer
+import RIDet3DAddon.tflow.model.nms as nms
+from RIDet3DAddon.tflow.log.metric import count_true_positives
+from RIDet3DAddon.tflow.train.feature_generator import FeatureMapDistributer
 
 
 class EvaluateNmsParams:
@@ -24,14 +25,11 @@ class EvaluateNmsParams:
     """
 
     def __init__(self):
-        self.dataset_name = cfg.Datasets.TARGET_DATASET
-        self.ckpt_path = op.join(cfg.Paths.CHECK_POINT, cfg.Train.CKPT_NAME)
-        self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
-        if cfg.ModelOutput.MINOR_CTGR:
-            self.num_ctgr = len(cfg.Dataloader.CATEGORY_NAMES["major"] + cfg.Dataloader.CATEGORY_NAMES["sign"]
-                                + cfg.Dataloader.CATEGORY_NAMES["mark"])
-        else:
-            self.num_ctgr = len(cfg.Dataloader.CATEGORY_NAMES["major"])
+        self.dataset_name = cfg3d.Datasets.TARGET_DATASET
+        self.ckpt_path = op.join(cfg3d.Paths.CHECK_POINT, cfg3d.Train.CKPT_NAME)
+        self.feat_scales = cfg3d.ModelOutput.FEATURE_SCALES
+        self.nms = nms.NonMaximumSuppression()
+        self.num_ctgr = len(cfg3d.Dataloader.CATEGORY_NAMES["category"])
 
     def create_eval_file(self):
         dataset, steps, model, anchors_per_scale, feature_creator = self.load_dataset_model(self.dataset_name, self.ckpt_path)
@@ -39,13 +37,13 @@ class EvaluateNmsParams:
         self.save_results(perf_data, self.ckpt_path)
 
     def load_dataset_model(self, dataset_name, ckpt_path):
-        batch_size, train_mode, anchors = cfg.Train.BATCH_SIZE, cfg.Train.MODE, cfg.AnchorGeneration.ANCHORS
-        tfrd_path = cfg.Paths.DATAPATH
+        batch_size, train_mode, anchors = cfg3d.Train.BATCH_SIZE, cfg3d.Train.MODE, cfg3d.AnchorGeneration.ANCHORS
+        tfrd_path = cfg3d.Paths.DATAPATH
         dataset, steps, imshape, anchors_per_scale \
             = self.get_dataset(tfrd_path, dataset_name, False, batch_size, "val", anchors)
         model = ModelFactory(batch_size, imshape, anchors_per_scale).get_model()
         model = self.try_load_weights(ckpt_path, model)
-        feature_creator = FeatureMapDistributer(cfg.FeatureDistribPolicy.POLICY_NAME, anchors_per_scale)
+        feature_creator = FeatureMapDistributer(cfg3d.FeatureDistribPolicy.POLICY_NAME, imshape, anchors_per_scale)
         return dataset, steps, model, anchors_per_scale, feature_creator
 
     def get_dataset(self, tfrd_path, dataset_name, shuffle, batch_size, split, anchors):
@@ -55,6 +53,8 @@ class EvaluateNmsParams:
         frames = reader.get_total_frames()
         tfr_cfg = reader.get_dataset_config()
         image_shape = tfr_cfg["image"]["shape"]
+        if "depth" in tfr_cfg:
+            image_shape[-1] += tfr_cfg["depth"]["shape"][-1]
         # anchor sizes per scale in pixel
         anchors_per_scale = np.array([anchor / np.array([image_shape[:2]]) for anchor in anchors], dtype=np.float32)
         print(f"[get_dataset] dataset={dataset_name}, image shape={image_shape}, "
@@ -72,9 +72,9 @@ class EvaluateNmsParams:
 
     def collect_recall_precision(self, dataset, steps, model, num_ctgr, anchors_per_scale, feature_creator):
         results = {"max_box": [], "iou_thresh": [], "score_thresh": []}
-        for max_box in cfg.NmsOptim.MAX_OUT_CANDIDATES:
-            for iou_thresh in cfg.NmsOptim.IOU_CANDIDATES:
-                for score_thresh in cfg.NmsOptim.SCORE_CANDIDATES[::-1]:
+        for max_box in cfg3d.NmsOptim.MAX_OUT_CANDIDATES:
+            for iou_thresh in cfg3d.NmsOptim.IOU_CANDIDATES:
+                for score_thresh in cfg3d.NmsOptim.SCORE_CANDIDATES[::-1]:
                     results["max_box"].append(max_box)
                     results["iou_thresh"].append(iou_thresh)
                     results["score_thresh"].append(score_thresh)
@@ -84,29 +84,31 @@ class EvaluateNmsParams:
         accum_keys = ["trpo", "grtr", "pred"]
         init_data = {key: np.zeros((num_params, num_ctgr), dtype=np.float32) for key in accum_keys}
         results.update(init_data)
-        nms = mu.NonMaximumSuppression()
         for step, grtr in enumerate(dataset):
-            grtr = tu.gt_feat_rename(grtr)
-            for i in range(grtr["image"].shape[0]):
-                feat_sizes = [np.array(grtr["image"][i].shape[:2]) // scale for scale in self.feat_scales]
-                featmap = feature_creator.create(grtr["inst"]["bboxes"][i].numpy(), feat_sizes)
-                grtr["feat"] = tu.create_batch_featmap(grtr, featmap)
+            grtr["image"] = np.concatenate([grtr["image"], grtr["depth"]], axis=-1)
+            # grtr = tu.gt_feat_rename(grtr)
+            # for i in range(grtr["image"].shape[0]):
+            #     feat_sizes = [np.array(grtr["image"][i].shape[:2]) // scale for scale in self.feat_scales]
+            #     featmap = feature_creator.create(grtr["inst"]["bboxes"][i].numpy(), feat_sizes)
+            #     grtr["feat"] = tu.create_batch_featmap(grtr, featmap)
             start = timer()
-            grtr_slices = uf.merge_and_slice_features(grtr, True)
-            for key, feature_slices in grtr_slices.items():
-                grtr_slices[key] = uf.convert_tensor_to_numpy(feature_slices)
-            pred = model(grtr["image"])
-            pred_slices = uf.merge_and_slice_features(pred, False)
+            # grtr_slices = uf3d.merge_and_slice_features(grtr, True)
+            # for key, feature_slices in grtr_slices.items():
+            #     grtr_slices[key] = uf.convert_tensor_to_numpy(feature_slices)
+            pred = model((grtr["image"], grtr["intrinsic"]))
+            # pred_slices = uf3d.merge_and_slice_features(pred, False)
 
             for i in range(num_params):
                 max_box = np.ones((num_ctgr,), dtype=np.float32) * results["max_box"][i]
                 iou_thresh = np.ones((num_ctgr,), dtype=np.float32) * results["iou_thresh"][i]
                 score_thresh = np.ones((num_ctgr,), dtype=np.float32) * results["score_thresh"][i]
-                pred_bboxes = nms(pred_slices["feat"], max_box, iou_thresh, score_thresh)
-                pred_bboxes = uf.slice_feature(pred_bboxes, uc.get_bbox_composition(False))
+                pred_bboxes, _ = self.nms(pred, max_box, iou_thresh, score_thresh)
+                pred_bboxes = uf3d.slice_feature(pred_bboxes, uc3d.get_bbox_composition(False))
+                grtr_bboxes = uf3d.slice_feature(grtr["inst2d"], uc3d.get_bbox_composition(True))
+                grtr_bboxes = uf.convert_tensor_to_numpy(grtr_bboxes)
                 pred_bboxes = self.convert_tensor_to_numpy(pred_bboxes)
-                count_per_class = count_true_positives(grtr_slices["inst"]["bboxes"], pred_bboxes, grtr_slices["inst"]["dontcare"],
-                                                       num_ctgr, iou_thresh=cfg.Validation.MAP_TP_IOU_THRESH,
+                count_per_class = count_true_positives(grtr_bboxes, pred_bboxes,
+                                                       num_ctgr, iou_thresh=cfg3d.Validation.MAP_TP_IOU_THRESH,
                                                        per_class=True)
 
                 for key in accum_keys:
@@ -181,13 +183,9 @@ class FindBestParamByAP:
     """
 
     def __init__(self):
-        self.file_dir = op.join(cfg.Paths.CHECK_POINT, cfg.Train.CKPT_NAME)
+        self.file_dir = op.join(cfg3d.Paths.CHECK_POINT, cfg3d.Train.CKPT_NAME)
         self.filename = self.find_nms_path(self.file_dir)
-        if cfg.ModelOutput.MINOR_CTGR:
-            self.num_ctgr = len(cfg.Dataloader.CATEGORY_NAMES["major"] + cfg.Dataloader.CATEGORY_NAMES["sign"]
-                                + cfg.Dataloader.CATEGORY_NAMES["mark"])
-        else:
-            self.num_ctgr = len(cfg.Dataloader.CATEGORY_NAMES["major"])
+        self.num_ctgr = len(cfg3d.Dataloader.CATEGORY_NAMES["category"])
 
     def find_nms_path(self, ckpt_path):
         param_dir = ckpt_path + "/nms_param"

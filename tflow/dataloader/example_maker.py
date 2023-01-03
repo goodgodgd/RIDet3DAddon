@@ -27,6 +27,7 @@ class ExampleMaker:
     def get_example(self, index):
         example = dict()
         example["image"] = self.data_reader.get_image(index)
+        example["image_shape"] = np.asarray((self.data_reader.get_image_shape(index)), dtype=np.float32)
         example["depth"] = self.data_reader.get_depth(index)
         example["intrinsic"] = self.data_reader.get_intrinsic(index)
         raw_hw_shape = example["image"].shape[:2]
@@ -34,6 +35,7 @@ class ExampleMaker:
         # Do NOT use dontcares
         example["inst2d"], example["inst3d"], _ = self.merge_box_and_category(bboxes2d, bboxes3d, categories)
         example = self.preprocess_example(example)
+        # print("file name: ", self.data_reader.get_frame_name(index))
         if index % 100 == 10:
             self.show_example(example)
         return example
@@ -58,7 +60,7 @@ class ExampleMaker:
         return bboxes2d, bboxes3d, dontcare
 
     def show_example(self, example):
-        image = tu.draw_boxes(example["image"], example["inst2d"], self.category_names)
+        image = tu.draw_boxes(example["image"], example["inst2d"], example["inst3d"], self.category_names)
         depth = example["depth"]
         depth[depth > self.max_depth] = self.max_depth
         depth = cv2.applyColorMap(depth.astype(np.uint8)*5, cv2.COLORMAP_TURBO)

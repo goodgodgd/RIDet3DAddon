@@ -5,7 +5,7 @@ from timeit import default_timer as timer
 import RIDet3DAddon.config as cfg
 from RIDet3DAddon.tflow.log.metric import count_true_positives
 from RIDet3DAddon.tflow.log.logger_pool import LogMeanDetailLoss, LogPositiveDetailObj, LogNegativeDetailObj, LogTrueClass, \
-    LogFalseClass, LogIouMean, LogBoxYX, LogBoxHW
+    LogFalseClass, LogIouMean, LogBoxYX, LogBoxHW, LogBoxYXZ, LogBoxHWL
 
 
 class ExhaustiveLog:
@@ -24,8 +24,13 @@ class ExhaustiveLog:
                   "anchor": [i for i in range(self.num_anchors) for k in range(self.num_categs)],
                   "ctgr": list(range(self.num_categs)) * self.num_anchors,
                   }
-        grtr_map = self.extract_feature_map(grtr["feat2d"])
-        pred_map = self.extract_feature_map(pred["feat2d"])
+        grtr_map = dict()
+        pred_map = dict()
+        grtr_map["feat2d"] = self.extract_feature_map(grtr["feat2d"])
+        pred_map["feat2d"] = self.extract_feature_map(pred["feat2d"])
+
+        grtr_map["feat3d"] = self.extract_feature_map(grtr["feat3d"])
+        pred_map["feat3d"] = self.extract_feature_map(pred["feat3d"])
         loss_map = self.extract_feature_map(loss, True)
         for key, log_object in self.loggers.items():
             result[key] = (log_object(grtr_map, pred_map, loss_map))
@@ -88,8 +93,12 @@ class ExhaustiveLog:
             loggers["category_2d"] = LogMeanDetailLoss("category_2d")
         if "category_3d" in columns:
             loggers["category_3d"] = LogMeanDetailLoss("category_3d")
-        if "box_3d" in columns:
-            loggers["box_3d"] = LogMeanDetailLoss("box_3d")
+        if "yx" in columns:
+            loggers["yx"] = LogMeanDetailLoss("yx")
+        if "hwl" in columns:
+            loggers["hwl"] = LogMeanDetailLoss("hwl")
+        if "yx" in columns:
+            loggers["z"] = LogMeanDetailLoss("z")
         if "theta" in columns:
             loggers["theta"] = LogMeanDetailLoss("theta")
         if "pos_obj" in columns:
@@ -106,6 +115,10 @@ class ExhaustiveLog:
             loggers["true_class"] = LogTrueClass("true_class")
         if "false_class" in columns:
             loggers["false_class"] = LogFalseClass("false_class")
+        if "box_yxz" in columns:
+            loggers["box_yxz"] = LogBoxYXZ("box_yxz")
+        if "box_hwl" in columns:
+            loggers["box_hwl"] = LogBoxHWL("box_hwl")
         return loggers
 
     def box_category_match(self, grtr, pred_bbox, categories, step):
@@ -138,7 +151,7 @@ class ExhaustiveLog:
     def ctgr_anchor_num_box(self, grtr_map, pred, categories, anchors, step):
         metric_data = []
         for anchor in anchors:
-            grtr_anchor_mask = grtr_map["category"][..., anchor, :]
+            grtr_anchor_mask = grtr_map["feat2d"]["category"][..., anchor, :]
             pred_anchor_mask = self.create_mask(pred, anchor, "anchor_ind")
             for category in categories:
                 pred_ctgr_mask = self.create_mask(pred, category, "category")
@@ -149,7 +162,7 @@ class ExhaustiveLog:
                 # pred_num_box = np.sum(pred_valid["object"] > 0)
 
                 grtr_catgr_mask = self.create_mask(grtr_anchor_mask, category, None)
-                grtr_num_box = np.sum(grtr_map["object"][..., anchor, :] * grtr_catgr_mask)
+                grtr_num_box = np.sum(grtr_map["feat2d"]["object"][..., anchor, :] * grtr_catgr_mask)
                 metric_data.append({"step": step, "anchor": anchor, "ctgr": category, "grtr": grtr_num_box, "pred": pred_num_box, "trpo": 0})
         return metric_data
 

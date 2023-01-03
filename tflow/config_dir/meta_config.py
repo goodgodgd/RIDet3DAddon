@@ -15,8 +15,11 @@ class Datasets:
     # specific dataset configs MUST have the same items
     class Kitti:
         NAME = "kitti"
-        PATH = "/home/eagle/mun_workspace/kitti"
-        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist"]
+        PATH = "/home/eagle/mun_workspace/Detector/data/kitti_split1"
+        CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist",]
+        # CATEGORIES_TO_USE = ["Pedestrian", "Car", "Cyclist"]
+        # CATEGORIES_TO_USE = ["Car"]
+        # CATEGORY_REMAP = {"Pedestrian": "DontCare", "Cyclist": "DontCare"}
         CATEGORY_REMAP = {}
         # (4,13) * 64
         INPUT_RESOLUTION = (320, 1024)
@@ -46,32 +49,34 @@ class ModelOutput:
 
     NUM_ANCHORS_PER_SCALE = 1
     # MAIN -> FMAP, NMS -> INST
-    GRTR_MAIN_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
+    GRTR_MAIN_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1, "anchor_ind": 1}
     PRED_MAIN_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE)
-    GRTR_3D_MAIN_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
+    GRTR_3D_MAIN_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1, "anchor_ind": 1}
     PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE)
     PRED_HEAD_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE, True)
     PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE, True)
 
-    GRTR_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1}
-    PRED_NMS_COMPOSITION = {"yxhw": 4, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    GRTR_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1}
+    PRED_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
 
-    GRTR_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"yxhwl": 5, "z": 1, "theta": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    GRTR_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1}
+    PRED_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "z": 1, "theta": 1, "occluded": 1, "occluded_probs": 3,
+                               "object_probs": 1, "category": 1, "category_probs": 4}
+    # PRED_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "z": 1, "theta": 1, "occluded": 1, "category": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
 
 class Architecture:
-    BACKBONE = ["Resnet", "Darknet53", "CSPDarknet53", "Efficientnet"][1]
+    BACKBONE = ["Resnet", "Darknet53", "CSPDarknet53", "Efficientnet"][2]
     NECK = ["FPN", "PAN", "BiFPN"][1]
-    HEAD = ["Single", "Double", "Efficient"][1]
+    HEAD = ["Single", "Double", "Efficient"][0]
     BACKBONE_CONV_ARGS = {"activation": "mish", "scope": "back"}
     NECK_CONV_ARGS = {"activation": "leaky_relu", "scope": "neck"}
     # HEAD_CONV_ARGS = {"activation": False, "scope": "head"}
     HEAD_CONV_ARGS = {"activation": "leaky_relu", "scope": "head"}
-    USE_SPP = [True, False][1]
-    COORD_CONV = [True, False][1]
+    USE_SPP = True
+    COORD_CONV = True
     SIGMOID_DELTA = 0.2
 
     class Resnet:
@@ -91,17 +96,20 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "3D_test_mp"
+    CKPT_NAME = "test_1202_v1"
     MODE = ["eager", "graph", "distribute"][1]
+    # AUGMENT_PROBS = None
+    AUGMENT_PROBS = {"Flip": 1.0}
+    # AUGMENT_PROBS = {"ColorJitter": 0.5, "Flip": 1.0, "CropResize": 1.0, "Blur": 0.2}
     DATA_BATCH_SIZE = 4
-    BATCH_SIZE = DATA_BATCH_SIZE * 2
+    # DATA_BATCH_SIZE = 1
+    BATCH_SIZE = DATA_BATCH_SIZE * 2 if AUGMENT_PROBS else DATA_BATCH_SIZE
     GLOBAL_BATCH = BATCH_SIZE
     TRAINING_PLAN = params.TrainingPlan.KITTI_SIMPLE
-    DETAIL_LOG_EPOCHS = list(range(0, 100, 10))
+    DETAIL_LOG_EPOCHS = list(range(10, 200, 50))
     IGNORE_MASK = True
     # AUGMENT_PROBS = {"Flip": 0.2}
-    # AUGMENT_PROBS = {"ColorJitter": 0.5, "CropResize": 1.0, "Blur": 0.2}
-    AUGMENT_PROBS = None
+
     # LOG_KEYS: select options in ["pred_object", "pred_ctgr_prob", "pred_score", "distance"]
     LOG_KEYS = ["pred_score"]
     USE_EMA = [True, False][1]
@@ -117,7 +125,7 @@ class Scheduler:
 
 
 class FeatureDistribPolicy:
-    POLICY_NAME = ["SinglePositivePolicy", "FasterRCNNPolicy", "MultiPositivePolicy"][2]
+    POLICY_NAME = ["SinglePositivePolicy", "FasterRCNNPolicy", "MultiPositivePolicy"][0]
     IOU_THRESH = [0.5, 0.3]
     CENTER_RADIUS = [2.5, 2.5]
     MULTI_POSITIVE_WIEGHT = 0.8
@@ -125,6 +133,7 @@ class FeatureDistribPolicy:
 
 class AnchorGeneration:
     ANCHOR_STYLE = "YoloxAnchor"
+    # ANCHORS = np.array([[[40, 34], [58, 71], [123, 42]], [[79, 118], [125, 167], [239, 89]], [[161, 246], [260, 253], [261, 381]]])
     ANCHORS = None
     MUL_SCALES = [scale / 8 for scale in ModelOutput.FEATURE_SCALES]
 
@@ -139,41 +148,58 @@ class AnchorGeneration:
         SCALES = [2 ** x for x in [0, 1 / 3, 2 / 3]]
 
     class YoloxAnchor:
-        BASE_ANCHOR = [8, 8]
+        BASE_ANCHOR = [64, 64]
         ASPECT_RATIO = [1]
         SCALES = [1]
 
 
 class NmsInfer:
-    MAX_OUT = [0, 10, 10, 10]
-    IOU_THRESH = [0., 0.5, 0.5, 0.5]
-    SCORE_THRESH = [1, 0.5, 0.5, 0.5]
+    MAX_OUT = [0, 20, 20, 20, 10, 10]
+    IOU_THRESH = [1., 0.5, 0.5, 0.5, 0.5, 0.5]
+    SCORE_THRESH = [1, 0.2, 0.2, 0.2, 0.2, 0.9]
+    IOU_3D_THRESH = [1.0, 0.4, 0.4, 0.4, 0.4, 0.4]
+    SCORE_3D_THRESH = [1, 0.24, 0.24, 0.24, 0.24, 0.24]
 
 
 class NmsOptim:
-    IOU_CANDIDATES = np.arange(0.1, 0.4, 0.02)
-    SCORE_CANDIDATES = np.arange(0.02, 0.4, 0.02)
-    MAX_OUT_CANDIDATES = np.arange(5, 20, 1)
+    IOU_CANDIDATES = np.arange(0.02, 0.5, 0.02)
+    SCORE_CANDIDATES = np.arange(0.02, 0.6, 0.02)
+    MAX_OUT_CANDIDATES = np.arange(1, 10, 1)
 
 
 class Validation:
-    TP_IOU_THRESH = [1, 0.4, 0.5, 0.5, 0.5, 0.4, 0.2, 0.3, 0.3, 0.4, 0.5, 0.5, 0.5]
-    DISTANCE_LIMIT = 25
+    TP_IOU_THRESH = [1, 0.25, 0.5, 0.25, 0.5, 0.5]
     VAL_EPOCH = "latest"
     MAP_TP_IOU_THRESH = [0.5]
     MAX_BOX = 200
 
 
 class Log:
-    LOSS_NAME = ["box_2d", "object", "category_2d", "category_3d", "box_3d", "theta"]
+    VISUAL_HEATMAP = True
+    # LOSS_NAME = ["box_2d", "object", "category_2d", "category_3d", "yx", "hwl", "depth", "theta"]
+    # LOSS_NAME = ["box_2d", "pos_object", "neg_object", "category_2d"]
 
     class HistoryLog:
-        SUMMARY = ["pos_obj", "neg_obj"]
+        SUMMARY = ["pos_obj"]
 
     class ExhaustiveLog:
-        DETAIL = ["pos_obj", "neg_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class"] \
+        # DETAIL = ["pos_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class",
+        #           "box_yxz", "box_hwl"] \
+        #     if ModelOutput.IOU_AWARE else ["pos_obj", "iou_mean", "box_yx", "box_hw", "true_class",
+        #                                    "false_class", "box_yxz", "box_hwl"]
+        DETAIL = ["pos_obj", "neg_obj", "iou_mean", "iou_aware", "box_yx", "box_hw", "true_class", "false_class",
+                  "box_yxz", "box_hwl"] \
             if ModelOutput.IOU_AWARE else ["pos_obj", "neg_obj", "iou_mean", "box_yx", "box_hw", "true_class",
-                                           "false_class"]
-        COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d", "category_3d", "box_3d", "theta", "pos_obj",
-                           "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class"]
+                                           "false_class", "box_yxz", "box_hwl"]
+        # COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "pos_object", "category_2d", "category_3d", "yx",
+        #                    "hwl", "depth", "theta", "pos_obj",
+        #                    "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class", "box_yxz", "box_hwl"]
+        COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d", "category_3d", "yx",
+                           "hwl", "depth", "theta", "pos_obj",
+                           "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class", "box_yxz", "box_hwl"]
         COLUMNS_TO_SUM = ["anchor", "ctgr", "trpo", "grtr", "pred"]
+
+        # COLUMNS_TO_MEAN = ["anchor", "ctgr", "box_2d", "object", "category_2d",
+        #                    "pos_obj",
+        #                    "neg_obj", "iou_mean", "box_hw", "box_yx", "true_class", "false_class"]
+        # COLUMNS_TO_SUM = ["anchor", "ctgr", "trpo", "grtr", "pred"]

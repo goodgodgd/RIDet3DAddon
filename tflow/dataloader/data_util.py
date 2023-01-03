@@ -91,7 +91,7 @@ def read_data_config(key, value):
     return {"parse_type": parse_type, "decode_type": decode_type, "shape": shape}
 
 
-def draw_boxes(image, bboxes, category_names, locations=None, box_format="yxhw"):
+def draw_boxes(image, bboxes, bboxes_3d, category_names, locations=None, box_format="yxhw"):
     """
     :param grid_feats:
     :param image: (height, width, 3), np.uint8
@@ -114,6 +114,8 @@ def draw_boxes(image, bboxes, category_names, locations=None, box_format="yxhw")
         image = cv2.rectangle(image, pt1, pt2, (255, 0, 0), thickness=2)
         image = cv2.putText(image, f"{i}{category_names['category'][category_index]}", pt1, cv2.FONT_HERSHEY_SIMPLEX,
                             0.5, (0, 0, 255), 2)
+        # image = cv2.putText(image, f"{bboxes_3d[i][2]:4f}", pt2, cv2.FONT_HERSHEY_SIMPLEX,
+        #                     0.5, (0, 255, 0), 2)
 
     if locations is not None:
         for i, location in enumerate(locations):

@@ -37,7 +37,7 @@ class IntegratedLoss:
                 scalar_loss, loss_map = loss_object(features, predictions, auxi, scale)
                 weight = self.loss_weights[loss_name][0][scale]
                 total_loss += scalar_loss * weight
-                loss_by_type[loss_name] += scalar_loss
+                loss_by_type[loss_name] += scalar_loss * weight
                 loss_by_type[loss_map_suffix].append(loss_map)
 
         return total_loss, loss_by_type
@@ -48,7 +48,7 @@ class IntegratedLoss:
         auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["feat2d"]["object"][scale]), 1)
         auxiliary["valid_category"] = self.valid_category
         auxiliary["ignore_mask"] = self.get_ignore_mask(grtr["inst2d"], pred["feat2d"], scale)
-        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"], grtr["intrinsic"], pred["feat2d"]["yxhw"])
+        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"])
         return auxiliary
 
     def get_ignore_mask(self, grtr, pred, scale):

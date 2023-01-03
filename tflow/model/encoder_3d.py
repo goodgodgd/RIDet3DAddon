@@ -1,25 +1,21 @@
 import tensorflow as tf
 
 import RIDet3DAddon.config as cfg3d
-import RIDet3DAddon.tflow.config_dir.util_config as uc
 
 
 class FeatureEncoder:
-    def __init__(self, channel_compos=uc.get_3d_channel_composition(False)):
+    def __init__(self):
         self.num_scale = len(cfg3d.ModelOutput.FEATURE_SCALES)
         self.margin = cfg3d.Architecture.SIGMOID_DELTA
-        self.channel_compos = channel_compos
         self.img_shape = cfg3d.Datasets.DATASET_CONFIG.INPUT_RESOLUTION
 
-    def inverse(self, feature, intrinsic, pred_box_2d):
-        encoded = {"yxhwl": []}
+    def inverse(self, feature):
+        encoded = {"hwl": []}
         for scale_index in range(self.num_scale):
-            valid_mask = tf.cast(feature["yxhwl"][scale_index][..., :1] > 0, dtype=tf.float32)
-            projected_yx = self.project_to_image(feature["yxhwl"][scale_index][..., :2], feature["z"][scale_index], intrinsic)
-            box_yx_logit = self.encode_yx(projected_yx, pred_box_2d[scale_index])
-            box_hwl_logit = self.encode_hwl(feature["yxhwl"][scale_index][..., 2:])
-            encoded["yxhwl"].append(tf.math.multiply_no_nan(tf.concat([box_yx_logit, box_hwl_logit], axis=-1), valid_mask))
-            assert encoded["yxhwl"][scale_index].shape == feature["yxhwl"][scale_index].shape
+            valid_mask = tf.cast(feature["yx"][scale_index][..., :1] > 0, dtype=tf.float32)
+            box_hwl_logit = self.encode_hwl(feature["hwl"][scale_index])
+            encoded["hwl"].append(tf.math.multiply_no_nan(box_hwl_logit, valid_mask))
+            assert encoded["hwl"][scale_index].shape == feature["hwl"][scale_index].shape
         return encoded
 
     def encode_yx(self, projected_yx, pred_box_2d):

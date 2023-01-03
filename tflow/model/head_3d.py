@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from utils.util_class import MyExceptionToCatch
-import RIDet3DAddon.config as cfg
+import RIDet3DAddon.config as cfg3d
 import model.tflow.model_util as mu
 import utils.tflow.util_function as uf
 import RIDet3DAddon.tflow.config_dir.util_config as uc
@@ -22,7 +22,6 @@ class HeadBase:
         self.conv2d = mu.CustomConv2D(kernel_size=3, strides=1, **conv_args)
         self.conv2d_k1 = mu.CustomConv2D(kernel_size=1, strides=1, **conv_args)
         self.conv2d_s2 = mu.CustomConv2D(kernel_size=3, strides=2, **conv_args)
-        self.conv2d_k1na = mu.CustomConv2D(kernel_size=1, strides=1, activation=False, bn=False, scope="head")
         self.conv2d_output = mu.CustomConv2D(kernel_size=1, strides=1, activation=False, scope="output", bn=False)
         self.align_conv2d = mu.CustomConv2D(kernel_size=3, padding="valid", strides=1, **conv_args)
         self.num_anchors_per_scale = num_anchors_per_scale
@@ -33,7 +32,6 @@ class HeadBase:
         for scale, feature in enumerate(features):
             b, h, w, c = feature.shape
             instance_bbox = tf.reshape(decode[scale], (b*h*w, -1))
-            # TODO batch_map create broadcast
             batch_map = list()
             for i in tf.range(b):
                 batch_map.append(tf.fill(h*w, i))
@@ -57,13 +55,13 @@ class SingleOutput3d(HeadBase):
 
     def __call__(self, input_features, decode_features):
         aligned_features = self.feature_align(input_features, decode_features)
-        small = aligned_features["feature_3"]
+        small = aligned_features[0]
         conv_sbbox = self.make_output(small, 256)
-        medium = aligned_features["feature_4"]
+        medium = aligned_features[1]
         conv_mbbox = self.make_output(medium, 512)
-        large = aligned_features["feature_5"]
+        large = aligned_features[2]
         conv_lbbox = self.make_output(large, 1024)
-        output_features = {"feature_3": conv_sbbox, "feature_4": conv_mbbox, "feature_5": conv_lbbox}
+        output_features = [conv_sbbox, conv_mbbox, conv_lbbox]
         return output_features
 
     def make_output(self, x, channel):
@@ -79,15 +77,15 @@ class DoubleOutput3d(HeadBase):
         super().__init__(conv_args, num_anchors_per_scale, pred_composition)
 
     def __call__(self, input_features, decode_features):
-        features = self.feature_align(input_features, decode_features)
+        aligned_features = self.feature_align(input_features, decode_features)
         output_features = list()
-        for feature in features:
+        for feature in aligned_features:
             conv_common = self.conv2d_k1(feature, 256)
             features = []
             for key, channel in self.pred_composition.items():
                 conv_out = self.conv2d(conv_common, 256)
                 conv_out = self.conv2d(conv_out, 256)
-                feat = self.conv2d_k1na(conv_out, channel * self.num_anchors_per_scale)
+                feat = self.conv2d_output(conv_out, channel * self.num_anchors_per_scale)
                 features.append(feat)
             b, h, w, c = features[0].shape
             output_feature = tf.concat(features, axis=-1)
@@ -114,7 +112,7 @@ def test_align():
     box_features = np.concatenate([box_features, remain_feature], axis=-1)[np.newaxis, ..., np.newaxis, :].repeat(1, axis=0)
 
     head3d_model = head_factory("Double", {"activation": "leaky_relu", "scope": "head"}, True, 1,
-                                cfg.ModelOutput.PRED_3D_HEAD_COMPOSITION)
+                                cfg3d.ModelOutput.PRED_3D_HEAD_COMPOSITION)
     dict_feat = {"feat": features}
     list_box_feat = list()
     list_box_feat.append(box_features.astype(np.float32))

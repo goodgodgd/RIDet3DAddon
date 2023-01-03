@@ -46,7 +46,7 @@ def train_by_plan(dataset_name, end_epoch, learning_rate, loss_weights, lr_hold)
     validater = tv.ModelValidater(model, loss_object, val_steps, feature_creator, anchors_per_scale, ckpt_path)
 
     for epoch in range(start_epoch, end_epoch):
-        dataset_train.shuffle(buffer_size=200)
+        # dataset_train.shuffle(buffer_size=200)
         lrs.set_scheduler(lr_hold, epoch)
         print(f"========== Start dataset : {dataset_name} epoch: {epoch + 1}/{end_epoch} ==========")
         detail_log = (epoch in cfg3d.Train.DETAIL_LOG_EPOCHS)

@@ -1,4 +1,5 @@
 import settings
+import os
 from RIDet3DAddon.tflow.train.train_plan import train_by_plan
 import numpy as np
 import utils.tflow.util_function as uf
@@ -15,5 +16,6 @@ def train_main():
 
 
 if __name__ == "__main__":
+    # os.environ["CUDA_VISIBLE_DEVICES"] = '0'
     np.set_printoptions(precision=4, suppress=True, linewidth=100)
     train_main()

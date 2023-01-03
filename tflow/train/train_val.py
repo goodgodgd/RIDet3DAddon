@@ -19,7 +19,6 @@ class TrainValBase:
         self.epoch_steps = epoch_steps
         self.ckpt_path = ckpt_path
         self.is_train = True
-        self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
         self.anchor_ratio = np.concatenate([anchor for anchor in anchors_per_scale])
         self.feature_creator = feature_creator
 
@@ -38,15 +37,18 @@ class TrainValBase:
                               f"total={total_loss:.3f}, "
                               f"box={loss_by_type['box_2d']:.3f}, "
                               f"object={loss_by_type['object']:.3f}, "
-                              f"category={loss_by_type['category_2d']:.3f}, "
-                              f"box_3d={loss_by_type['box_3d']:.3f}, "
+                              f"category={loss_by_type['category']:.3f}, "
+                              f"yx={loss_by_type['yx']:.3f}, "
+                              f"hwl={loss_by_type['hwl']:.3f}, "
                               f"theta={loss_by_type['theta']:.3f}, "
-                              f"category_3d={loss_by_type['category_3d']:.3f}, ")
+                              f"depth={loss_by_type['depth']:.3f}, "
+                              f"occluded={loss_by_type['occluded']:.3f}, "
+                              )
 
             if step >= self.epoch_steps:
                 break
-            # if step >= 9:
-            #     break
+         #   if step >= 10:
+            #    break
 
         print("")
         logger.finalize(epoch_start)
@@ -74,7 +76,7 @@ class ModelTrainer(TrainValBase):
     @mode_decor
     def run_step(self, features):
         with tf.GradientTape() as tape:
-            prediction = self.model(features, training=True)
+            prediction = self.model((features["image"], features["intrinsic"]), training=True)
             total_loss, loss_by_type = self.loss_object(features, prediction)
 
         grads = tape.gradient(total_loss, self.model.trainable_weights)
@@ -196,6 +198,6 @@ class ModelValidater(TrainValBase):
 
     @mode_decor
     def run_step(self, features):
-        prediction = self.model(features)
+        prediction = self.model((features["image"], features["intrinsic"]))
         total_loss, loss_by_type = self.loss_object(features, prediction)
         return prediction, total_loss, loss_by_type, features

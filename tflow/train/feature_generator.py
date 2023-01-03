@@ -22,7 +22,7 @@ class ObjectDistribPolicy:
     def __init__(self, imshape, anchors_per_scale):
         self.feat_scales = cfg.ModelOutput.FEATURE_SCALES
         self.feat_shapes = [np.array(imshape[:2]) // scale for scale in self.feat_scales]
-        self.anchor_ratio = np.array(anchors_per_scale)
+        self.anchor_ratio = np.concatenate([anchor for anchor in anchors_per_scale])
         self.num_anchor_per_scale = len(self.anchor_ratio) // len(self.feat_scales)
     
     def __call__(self, features):
@@ -41,6 +41,80 @@ class ObjectDistribPolicy:
                     merge_features[slice_key].append(uf.merge_dim_hwa(dict_per_feat))
             features[key] = merge_features
         return features
+
+    def slice_and_merge(self, features):
+        slice_feat = uf.merge_and_slice_features(features, True, "feat")
+        merge_features = {key: list() for key in slice_feat.keys()}
+        for key, feat in slice_feat.items():
+            if key is "merged":
+                merge_features[key] = feat
+                continue
+            for dict_per_feat in feat:
+                merge_features[key].append(uf.merge_dim_hwa(dict_per_feat))
+        return merge_features
+
+
+class SinglePositivePolicy(ObjectDistribPolicy):
+    def __init__(self, imshape, anchors_per_scale):
+        super().__init__(imshape, anchors_per_scale)
+        self.decoder2d = encoder_2d.FeatureEncoder(anchors_per_scale)
+
+    def __call__(self, box_features):
+        """
+            :param features: {inst_box: {"yxhw": ..., "object": ..., ...}, inst_dc{...}, ...}
+            :return:
+            """
+        bboxes = box_features["inst2d"]["yxhw"]
+        boxes_hw = bboxes[..., np.newaxis, 2:4]  # (B, N, 1, 2)
+        anchors_hw = self.anchor_ratio[np.newaxis, np.newaxis, :, :]  # (1, 1, 3, 2)
+        inter_hw = np.minimum(boxes_hw, anchors_hw)  # (B, N, 3, 2)
+        inter_area = inter_hw[..., 0] * inter_hw[..., 1]  # (B, N, 3)
+        union_area = boxes_hw[..., 0] * boxes_hw[..., 1] + anchors_hw[..., 0] * anchors_hw[..., 1] - inter_area
+        iou = inter_area / union_area
+        best_anchor_indices = np.argmax(iou, axis=-1)
+        out_2d_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
+                                     box_features["inst2d"]["merged"].shape[-1] + 1), dtype=np.float32)
+                           for feat_shape in self.feat_shapes]
+        out_3d_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
+                                     box_features["inst3d"]["merged"].shape[-1] + 1), dtype=np.float32)
+                           for feat_shape in self.feat_shapes]
+        batch_2d_features = [np.zeros(
+            (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst2d"]["merged"].shape[-1]),
+            dtype=np.float32)
+                          for feat_shape in self.feat_shapes]
+        batch_3d_features = [np.zeros(
+            (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst3d"]["merged"].shape[-1]),
+            dtype=np.float32)
+                          for feat_shape in self.feat_shapes]
+        anchor_map = [np.ones((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, 1), dtype=np.float32) * (-1)
+                      for feat_shape in self.feat_shapes]
+        for batch in range(bboxes.shape[0]):
+            for anchor_index, box2d, box3d in zip(best_anchor_indices[batch], box_features["inst2d"]["merged"][batch],
+                                                  box_features["inst3d"]["merged"][batch]):
+                if np.all(box2d == 0):
+                    break
+                scale_index = anchor_index // self.num_anchor_per_scale
+                anchor_index_in_scale = anchor_index % self.num_anchor_per_scale
+                feat_2d_map = batch_2d_features[scale_index]
+                feat_3d_map = batch_3d_features[scale_index]
+                anchor_scale_map = anchor_map[scale_index]
+                # bbox: [y, x, h, w, category]
+                grid_yx = (box2d[:2] * self.feat_shapes[scale_index]).astype(np.int32)
+                assert (grid_yx >= 0).all() and (grid_yx < self.feat_shapes[scale_index]).all()
+                # # bbox: [y, x, h, w, 1, major_category, minor_category, depth]
+                feat_2d_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box2d
+                feat_3d_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box3d
+                anchor_scale_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale, 0] = anchor_index
+                out_2d_features[scale_index] = np.concatenate([feat_2d_map, anchor_scale_map], axis=-1)
+                out_3d_features[scale_index] = np.concatenate([feat_3d_map, anchor_scale_map], axis=-1)
+
+        box_features["feat2d"] = out_2d_features
+        box_features["feat3d"] = out_3d_features
+        for key in ["feat2d", "feat3d"]:
+            box_features[key] = uf3d.merge_and_slice_features(box_features[key], True, key)
+        box_features["feat2d_logit"] = self.decoder2d.inverse(box_features["feat2d"])
+        box_features = self.feature_merge(box_features)
+        return box_features
 
 
 class MultiPositiveGenerator:
@@ -72,10 +146,10 @@ class MultiPositiveGenerator:
 
         for key in ["feat2d", "feat3d"]:
             features[key] = uf3d.merge_and_slice_features(features[key], True, key)
-        # features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
-        #                                                                  features["feat2d"]["object"])
-        features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        features["feat2d"]["mp_object"] = self.multi_positive_objectness(box2d, belong_to_scale,
                                                                          features["feat2d"]["object"])
+        # features["feat2d"]["object"] = self.multi_positive_objectness(box2d, belong_to_scale,
+        #                                                                  features["feat2d"]["object"])
         return features
 
     def to_grid_over_scales(self, box2d):
@@ -99,16 +173,32 @@ class MultiPositiveGenerator:
         for i, s in enumerate(self.feat_scales):
             feats_in_batch = []
             for b in range(inst["merged"].shape[0]):
-                feat_map = self.create_featmap(self.feat_shapes[i], inst["merged"][b], grid_yx[i][b], belong_to_scale[i][b])
+                feat_map = self.create_featmap(self.feat_shapes[i], inst["merged"][b], grid_yx[i][b],
+                                               belong_to_scale[i][b], i)
                 feats_in_batch.append(feat_map)
             feats_over_scale.append(np.stack(feats_in_batch, axis=0))
         return feats_over_scale
 
-    def create_featmap(self, feat_shapes, instances, grid_yx, valid):
+    def create_featmap(self, feat_shapes, instances, grid_yx, valid, i):
         valid_grid_yx = grid_yx[valid].astype(np.int)
         gt_features = np.zeros((feat_shapes[0], feat_shapes[1], 1, instances.shape[-1]), dtype=np.float32)
+        anchor_map = np.ones((feat_shapes[0], feat_shapes[1], 1, 1), dtype=np.float32) * (-1)
+
         gt_features[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ...] = instances[valid][..., np.newaxis, :]
+        anchor_map[valid_grid_yx[:, 0], valid_grid_yx[:, 1], ..., 0] = i
+        gt_features = np.concatenate([gt_features, anchor_map], axis=-1)
         return gt_features
+
+    def slice_and_merge(self, features, key):
+        slice_feat = uf.merge_and_slice_features(features, True, key)
+        merge_features = {key: list() for key in slice_feat.keys()}
+        for key, feat in slice_feat.items():
+            if key is "whole":
+                merge_features[key] = feat
+                continue
+            for dict_per_feat in feat:
+                merge_features[key].append(uf.merge_dim_hwa(dict_per_feat))
+        return merge_features
 
     def multi_positive_objectness(self, box2d, validity, single_positive_map):
         mp_object_over_scale = []
