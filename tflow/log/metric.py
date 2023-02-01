@@ -2,6 +2,7 @@ import numpy as np
 import utils.tflow.util_function as uf
 import RIDet3DAddon.tflow.utils.util_function as uf3d
 import config as cfg
+import pandas as pd
 
 
 def count_true_positives(grtr, pred, num_ctgr, iou_thresh=cfg.Validation.TP_IOU_THRESH, per_class=False):
@@ -67,8 +68,8 @@ def split_tp_fp_fn(pred, grtr, iou_thresh):
     pred_tp = {key: val * pred_tp_mask for key, val in pred.items()}
     pred_fp = {key: val * pred_fp_mask for key, val in pred.items()}
     for key in pred_tp.keys():
-        pred_tp[key] = np.take_along_axis(pred_tp[key], best_idx[..., np.newaxis], 1)
-        pred_fp[key] = np.take_along_axis(pred_fp[key], best_idx[..., np.newaxis], 1)
+        pred_tp[key] = numpy_gather(pred_tp[key], best_idx, 1)
+        pred_fp[key] = numpy_gather(pred_fp[key], best_idx, 1)
 
     return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn}
 
@@ -125,13 +126,15 @@ def count_true_positives_3d(grtr, pred, valid_mask, iou_thresh=cfg.Validation.TP
 
 
 def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
-    batch, M, _ = pred["inst2d"]["category"].shape
-    valid_mask = grtr["inst2d"]["object"]
+    # del grtr["inst"]["yxhw"]
+    # del grtr["inst"]["pred_ctgr_prob"]
+    batch, M, _ = pred["inst"]["category"].shape
+    valid_mask = grtr["inst"]["object"]
     batch_3d_iou = list()
 
     for frame_idx in range(batch):
-        iou3d = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["inst3d"]["yx"].shape[1]).astype(np.bool),
-                             np.ones(pred["inst3d"]["yx"].shape[1]).astype(np.bool))  # (batch, N, M)
+        iou3d = compute_3d_iou(grtr, pred, frame_idx, np.ones(grtr["inst"]["yx"].shape[1]).astype(np.bool),
+                             np.ones(pred["inst"]["yx"].shape[1]).astype(np.bool))  # (batch, N, M)
         iou3d[np.where(iou3d == 0.)] = -1
         batch_3d_iou.append(iou3d)
     batch_3d_iou = np.stack(batch_3d_iou, axis=0)
@@ -140,48 +143,75 @@ def split_tp_fp_fn_3d(grtr, pred, iou_thresh):
 
     best_3d_idx = np.argmax(batch_3d_iou, axis=-1)  # (batch, N)
     if len(iou_thresh) > 1:
-        iou_thresh = get_iou_thresh_per_class(grtr["inst2d"]["category"], iou_thresh)
+        iou_thresh = get_iou_thresh_per_class(grtr["inst"]["category"], iou_thresh)
     iou_match = best_3d_iou > iou_thresh  # (batch, N)
 
-    pred_ctgr_aligned = np.take_along_axis(pred["inst2d"]["category"][..., 0], best_3d_idx, 1)  # (batch, N, 8)
-    pred_oclu_aligned = np.take_along_axis(pred["inst3d"]["occluded"][..., 0], best_3d_idx, 1)  # (batch, N, 8)
+    # pred_ctgr_aligned = np.take_along_axis(pred["inst"]["category"][..., 0], best_3d_idx, 1)  # (batch, N, 8)
+    # pred_oclu_aligned = np.take_along_axis(pred["inst"]["occluded"][..., 0], best_3d_idx, 1)  # (batch, N, 8)
+    pred_ctgr_aligned = numpy_gather(pred["inst"]["category"], best_3d_idx, 1)  # (batch, N, 8)
+    pred_oclu_aligned = numpy_gather(pred["inst"]["occluded"], best_3d_idx, 1)  # (batch, N, 8)
 
-    ctgr_match = grtr["inst2d"]["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
-    oclu_match = grtr["inst3d"]["occluded"][..., 0] == pred_oclu_aligned  # (batch, N)
+    ctgr_match = grtr["inst"]["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
+    oclu_match = grtr["inst"]["occluded"][..., 0] == pred_oclu_aligned  # (batch, N)
     grtr_tp_mask = np.expand_dims(iou_match * ctgr_match * oclu_match, axis=-1)  # (batch, N, 1)
 
+    grtr["inst"]["occlusion_ratio"] = occlusion_ratio(grtr["inst"])
+    # pred["inst"]["occlusion_ratio"] = occlusion_ratio(pred["inst"])
     grtr_fn_mask = ((1 - grtr_tp_mask) * valid_mask).astype(np.float32)  # (batch, N, 1)
-    grtr_tp = {key: val * grtr_tp_mask for key, val in grtr["inst3d"].items()}
-    grtr_fn = {key: val * grtr_fn_mask for key, val in grtr["inst3d"].items()}
-    grtr_tp["z"] = grtr["inst2d"]["z"] * grtr_tp_mask
-    grtr_fn["z"] = grtr["inst2d"]["z"] * grtr_fn_mask
+    grtr_tp = {key: val * grtr_tp_mask for key, val in grtr["inst"].items()}
+    grtr_fn = {key: val * grtr_fn_mask for key, val in grtr["inst"].items()}
+    # grtr_tp["z"] = grtr["inst"]["z"] * grtr_tp_mask
+    # grtr_fn["z"] = grtr["inst"]["z"] * grtr_fn_mask
     grtr_tp["iou"] = best_3d_iou[..., np.newaxis] * grtr_tp_mask
     grtr_fn["iou"] = best_3d_iou[..., np.newaxis] * grtr_fn_mask
     pred_tp_mask = indices_to_binary_mask(best_3d_idx, grtr_tp_mask, M)
-    pred_tp_mask_test = np.take_along_axis(pred_tp_mask[..., 0], best_3d_idx, 1)
+    # pred_tp_mask_test = np.take_along_axis(pred_tp_mask[..., 0], best_3d_idx, 1)
     pred_fp_mask = 1 - pred_tp_mask  # (batch, M, 1)
-    pred_tp = {key: val * pred_tp_mask for key, val in pred["inst3d"].items()}
-    pred_fp = {key: val * pred_fp_mask for key, val in pred["inst3d"].items()}
-    pred_tp2 = pred_tp["yx"].copy()
-    pred_fp2 = pred_fp["yx"].copy()
+    pred_tp = {key: val * pred_tp_mask for key, val in pred["inst"].items()}
+    pred_fp = {key: val * pred_fp_mask for key, val in pred["inst"].items()}
+    # pred_tp2 = pred_tp["yx"].copy()
+    # pred_fp2 = pred_fp["yx"].copy()
     for key in pred_tp.keys():
         pred_tp[key] = np.take_along_axis(pred_tp[key], best_3d_idx[..., np.newaxis], 1) * grtr_tp_mask
         pred_fp[key] = np.take_along_axis(pred_fp[key], best_3d_idx[..., np.newaxis], 1) * grtr_fn_mask
+    pred_tp["occlusion_ratio"] = occlusion_ratio(pred_tp)
+    pred_fp["occlusion_ratio"] = occlusion_ratio(pred_fp)
 
 
-    iou2d = uf.compute_iou_general(grtr["inst2d"]["yxhw"], pred["inst2d"]["yxhw"]).numpy()  # (batch, N, M)
+    iou2d = uf.compute_iou_general(grtr["inst"]["yxhw"], pred["inst"]["yxhw"]).numpy()  # (batch, N, M)
     best_iou2d = np.max(iou2d, axis=-1)
     iou_match_2d = best_iou2d > iou_thresh  # (batch, N)
     best_2d_idx = np.argmax(iou2d, axis=-1)  # (batch, N)
-    pred_ctgr_aligned = np.take_along_axis(pred["inst2d"]["category"][..., 0], best_2d_idx, 1)  # (batch, N, 8)# (batch, N)
-    ctgr_match = grtr["inst2d"]["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
+    pred_ctgr_aligned = np.take_along_axis(pred["inst"]["category"][..., 0], best_2d_idx, 1)  # (batch, N, 8)# (batch, N)
+    ctgr_match = grtr["inst"]["category"][..., 0] == pred_ctgr_aligned  # (batch, N)
     grtr_2d_tp_mask = np.expand_dims(iou_match_2d * ctgr_match, axis=-1)  # (batch, N, 1)
-    pred_2d_tp_mask = np.take_along_axis(indices_to_binary_mask(best_2d_idx, grtr_2d_tp_mask, M),
-                                         best_2d_idx[..., np.newaxis], 1)
-    analyze_grtr_fn = {key: val * grtr_2d_tp_mask for key, val in grtr_fn.items()}
-    analyze_pred_fp = {key: val * grtr_2d_tp_mask * grtr_fn_mask for key, val in pred_fp.items()}
-    # for key in analyze_pred_tp.keys():
-    #     analyze_pred_tp[key] = np.take_along_axis(analyze_pred_tp[key], best_2d_idx[..., np.newaxis], 1)
+    # pred_2d_tp_mask = np.take_along_axis(indices_to_binary_mask(best_2d_idx, grtr_2d_tp_mask, M),
+    #                                      best_2d_idx[..., np.newaxis], 1)
+    # analyze_grtr_fn = {key: val * (grtr_2d_tp_mask | grtr_fn_mask.astype(np.bool)) for key, val in grtr_fn.items()}
+    # analyze_pred_fp = {key: val * (grtr_2d_tp_mask | pred_fp_mask.astype(np.bool)) for key, val in pred_fp.items()}
+    analyze_grtr_fn = {key: val * (grtr_2d_tp_mask | grtr_fn_mask.astype(np.bool)) for key, val in grtr["inst"].items()}
+    analyze_pred_fp = {key: val * (grtr_2d_tp_mask | pred_fp_mask.astype(np.bool)) for key, val in pred["inst"].items()}
+
+    for key in analyze_pred_fp.keys():
+        # analyze_pred_fp[key] = numpy_gather(analyze_pred_fp[key], np.repeat(best_3d_idx[..., np.newaxis], c, axis=-1), 1)
+        analyze_pred_fp[key] = np.take_along_axis(analyze_pred_fp[key], best_3d_idx[..., np.newaxis], 1) * grtr_fn_mask
+
+
+    # for key in analyze_pred_fp.keys():
+    #     analyze_pred_fp[key], indices= np.unique(analyze_pred_fp[key], axis=1, return_index=True)
+    #     _, __, c = analyze_pred_fp[key].shape
+    #     analyze_pred_fp[key] = analyze_pred_fp[key][:, np.argsort(indices), :]
+
+        # indices = np.unique(analyze_pred_fp[key], axis=1, return_index=True)[1]
+        # fp_list = []
+        # for b in range(batch):
+        #     fp_list.append([analyze_pred_fp[key][b, index, :] for index in sorted(indices)])
+        # analyze_pred_fp[key] = np.array(fp_list, dtype=np.float32)
+
+        # num_shape = analyze_pred_fp[key].shape[1]
+        # zero = np.zeros((batch, M - num_shape, c))
+        # analyze_pred_fp[key] = np.concatenate([analyze_pred_fp[key], zero], axis=1)
+    analyze_pred_fp["occlusion_ratio"] = occlusion_ratio(analyze_pred_fp)
 
     return {"pred_tp": pred_tp, "pred_fp": pred_fp, "grtr_tp": grtr_tp, "grtr_fn": grtr_fn,
             "analyze_grtr_fn": analyze_grtr_fn, "analyze_pred_fp": analyze_pred_fp}
@@ -196,10 +226,10 @@ def compute_3d_iou(boxes1, boxes2, frame_idx, mask_1, mask_2):
 
 
 def extract_param(boxes, frame_idx, score_mask):
-    hwl = boxes["inst3d"]["hwl"][frame_idx, :][score_mask]
-    xyz = np.stack([boxes["inst2d"]["z"][frame_idx, :, 0], -boxes["inst3d"]["yx"][frame_idx, :, 1], -boxes["inst3d"]["yx"][frame_idx, :, 0]],
+    hwl = boxes["inst"]["hwl"][frame_idx, :][score_mask]
+    xyz = np.stack([boxes["inst"]["z"][frame_idx, :, 0], -boxes["inst"]["yx"][frame_idx, :, 1], -boxes["inst"]["yx"][frame_idx, :, 0]],
                     axis=-1)[score_mask]
-    theta = boxes["inst3d"]["theta"][frame_idx, :, 0][score_mask] - np.pi/2
+    theta = boxes["inst"]["theta"][frame_idx, :, 0][score_mask] - np.pi/2
     # xyz = np.stack([boxes["inst3d"]["yx"][frame_idx, :, 1], boxes["inst3d"]["yx"][frame_idx, :, 0], boxes["inst2d"]["z"][frame_idx, :, 0]],
     #               axis=-1)[score_mask]
     # theta = boxes["inst3d"]["theta"][frame_idx, :, 0][score_mask]
@@ -268,6 +298,58 @@ def numpy_gather(params, index, dim=0):
     else:
         gathar_param = np.take(params, index)
     return gathar_param
+
+
+def occlusion_ratio(grtr_inst):
+    batch = grtr_inst["yxhw"].shape[0]
+    batch_occlusion = [[] for i in range(batch)]
+    for b in range(batch):
+        yxhw = grtr_inst["yxhw"]
+        depth = grtr_inst["z"]
+        # valid_mask = yxhw[..., 2] > 0
+        valid_yxhw = yxhw[b]
+        valid_depth = depth[b]
+        occlusion = np.zeros(depth.shape)
+        for i in range(len(valid_yxhw)):
+            for j in range(i+1, len(valid_yxhw)):
+                if boxes_overlap(valid_yxhw[i], valid_yxhw[j]):
+                    intersection_area  = boxes_overlap_area(valid_yxhw[i], valid_yxhw[j])
+                    if valid_depth[i] > valid_depth[j]:
+                        bb_area = valid_yxhw[i][2] * valid_yxhw[i][3]
+                        occlusion[b, i] += intersection_area / bb_area
+                        # occlusion[i] += boxes_overlap_area(valid_yxhw[i], valid_yxhw[j])
+                    else:
+                        bb_area = valid_yxhw[j][2] * valid_yxhw[j][3]
+                        occlusion[b, j] += intersection_area / bb_area
+                        # occlusion[j] += boxes_overlap_area(valid_yxhw[i], valid_yxhw[j])
+        # pad_zero = np.zeros(50 - len(occlusion))
+        # occlusion = np.concatenate([occlusion, pad_zero], axis=0)
+        # batch_occlusion[b] = occlusion
+    # batch_occlusion = np.asarray(batch_occlusion, dtype=np.float32)[..., np.newaxis]
+
+
+    return occlusion
+
+def boxes_overlap(box1, box2):
+    y, x, h1, w1 = box1
+    y1 = y - h1/2
+    x1 = x - w1/2
+    y, x, h2, w2 = box2
+    y2 = y - h2 / 2
+    x2 = x - w2 / 2
+    return (x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2)
+
+def boxes_overlap_area(box1, box2):
+    y, x, h1, w1 = box1
+    y1 = y - h1/2
+    x1 = x - w1/2
+    y, x, h2, w2 = box2
+    y2 = y - h2 / 2
+    x2 = x - w2 / 2
+    x_overlap = max(0, min(x1+w1,x2+w2) - max(x1,x2))
+    y_overlap = max(0, min(y1+h1,y2+h2) - max(y1,y2))
+    return x_overlap * y_overlap
+
 
 def test():
     # hwl_1 = np.array([[1.41,1.58,4.36]], np.float32)

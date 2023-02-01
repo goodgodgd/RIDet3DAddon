@@ -84,22 +84,22 @@ class KittiReader(DatasetReaderBase):
         image_file = self.frame_names[index]
         label_file = image_file.replace("image_2", "label_2").replace(".png", ".txt")
 
-        bboxes2d = []
-        bboxes3d = []
+        bboxes = []
+        # bboxes3d = []
         categories = []
         with open(label_file, 'r') as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
-                bbox2d, bbox3d, category = self.extract_box(line)
-                if (bbox2d is not None) or (bbox3d is not None):
-                    bboxes2d.append(bbox2d)
-                    bboxes3d.append(bbox3d)
+                bbox, category = self.extract_box(line)
+                if bbox is not None:
+                    bboxes.append(bbox)
+                    # bboxes3d.append(bbox3d)
                     categories.append(category)
-        if (not bboxes2d) or (not bboxes3d):
+        if not bboxes:
             raise uc.MyExceptionToCatch("[get_bboxes] empty boxes")
-        bboxes2d = np.array(bboxes2d)
-        bboxes3d = np.array(bboxes3d)
-        return bboxes2d, bboxes3d, categories
+        bboxes = np.array(bboxes)
+        # bboxes3d = np.array(bboxes3d)
+        return bboxes, categories
 
     def extract_box(self, line):
         raw_label = line.strip("\n").split(" ")
@@ -107,22 +107,23 @@ class KittiReader(DatasetReaderBase):
         # if int(raw_label[2]) > 2:
         #     return None, None, None
         if category_name not in self.dataset_cfg.CATEGORIES_TO_USE:
-            return None, None, None
+            return None, None
         y1 = round(float(raw_label[5]))
         x1 = round(float(raw_label[4]))
         y2 = round(float(raw_label[7]))
         x2 = round(float(raw_label[6]))
         occluded = float(raw_label[2])
         if occluded > 2:
-            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   -1
+            # return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
+            #        np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
+            #        -1
+            return np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -1
 
         h = float(raw_label[8])
         w = float(raw_label[9])
         l = float(raw_label[10])
         if (y2 - y1 < 1) or (x2 - x1 < 1):
-            return None, None, None
+            return None, None
         x3d = float(raw_label[11])
         y3d = float(raw_label[12]) - (h/2)
         z = float(raw_label[13])
@@ -132,24 +133,18 @@ class KittiReader(DatasetReaderBase):
         if theta > np.pi:
             theta -= np.pi
         if z > 50.:
-            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   -1
+            return np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -1
         if z <= 0.:
-            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   -1
+            return np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -1
         if x3d == 0.:
-            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   -1
+            return np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -1
         if y3d == 0.:
-            return np.array([-1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   np.array([-1, -1, -1, -1, -1, -1, -1], dtype=np.float32), \
-                   -1
-        bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, z, 1], dtype=np.float32)
-        bbox_3d = np.array([y3d, x3d, h, w, l, theta, occluded], dtype=np.float32)
-        return bbox_2d, bbox_3d, category_name
+            return np.array([-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1], dtype=np.float32), -1
+        # bbox_2d = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, z, 1], dtype=np.float32)
+        # bbox_3d = np.array([y3d, x3d, h, w, l, theta, occluded], dtype=np.float32)
+        bbox = np.array([(y1 + y2) / 2, (x1 + x2) / 2, y2 - y1, x2 - x1, z, y3d, x3d, h, w, l, theta, 1, occluded], dtype=np.float32)
+        # return bbox_2d, bbox_3d, category_name
+        return bbox, category_name
 
     def load_calib_data(self, file):
         calib_dict = {}

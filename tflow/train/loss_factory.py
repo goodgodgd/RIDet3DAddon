@@ -45,10 +45,10 @@ class IntegratedLoss:
     def prepare_box_auxiliary_data(self, grtr, pred, scale):
         auxiliary = dict()
         # As object_count is used as a denominator, it must NOT be 0.
-        auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["feat2d"]["object"][scale]), 1)
+        auxiliary["object_count"] = uf.maximum(uf.reduce_sum(grtr["feat"]["object"][scale]), 1)
         auxiliary["valid_category"] = self.valid_category
-        auxiliary["ignore_mask"] = self.get_ignore_mask(grtr["inst2d"], pred["feat2d"], scale)
-        auxiliary["feat3d_logit"] = self.encoder3d.inverse(grtr["feat3d"])
+        auxiliary["ignore_mask"] = self.get_ignore_mask(grtr["inst"], pred["feat"], scale)
+        auxiliary["feat_logit"] = self.encoder3d.inverse(grtr["feat"])
         return auxiliary
 
     def get_ignore_mask(self, grtr, pred, scale):

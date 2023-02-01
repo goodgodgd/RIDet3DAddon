@@ -104,14 +104,14 @@ class ExampleResizer(PreprocessBase):
         resize_ratio_w = self.target_hw[1] / source_hw[1]
         # resize image
         image = cv2.resize(example["image"], (self.target_hw[1].astype(np.int32), self.target_hw[0].astype(np.int32)))
-        bboxes = example["inst2d"].astype(np.float32)
+        bboxes2d = example["inst"][:, :4].astype(np.float32)
         # rescale yxhw
-        bboxes[:, 0] *= resize_ratio_h
-        bboxes[:, 1] *= resize_ratio_w
-        bboxes[:, 2] *= resize_ratio_h
-        bboxes[:, 3] *= resize_ratio_w
+        bboxes2d[:, 0] *= resize_ratio_h
+        bboxes2d[:, 1] *= resize_ratio_w
+        bboxes2d[:, 2] *= resize_ratio_h
+        bboxes2d[:, 3] *= resize_ratio_w
         example["image"] = image
-        example["inst2d"] = bboxes
+        example["inst"][:, :4] = bboxes2d
         return example
 
 
@@ -134,9 +134,9 @@ class ExampleBoxScaler(PreprocessBase):
     """
     def __call__(self, example):
         height, width = example["image"].shape[:2]
-        bboxes = example["inst2d"].astype(np.float32)
+        bboxes = example["inst"][:, :4].astype(np.float32)
         bboxes[:, :4] /= np.array([height, width, height, width])
-        example["inst2d"] = bboxes
+        example["inst"][:, :4] = bboxes
 
         if "dontcare" in example.keys():
             dc_boxes = example["dontcare"].astype(np.float32)
@@ -181,17 +181,17 @@ class ExampleZeroPadBbox(PreprocessBase):
         self.max_bbox = max_bbox
 
     def __call__(self, example):
-        bboxes = example["inst2d"]
+        bboxes = example["inst"]
         if bboxes.shape[0] < self.max_bbox:
             new_bboxes = np.zeros((self.max_bbox, bboxes.shape[1]), dtype=np.float32)
             new_bboxes[:bboxes.shape[0]] = bboxes
-            example["inst2d"] = new_bboxes
+            example["inst"] = new_bboxes
 
-        bboxes = example["inst3d"]
-        if bboxes.shape[0] < self.max_bbox:
-            new_bboxes = np.zeros((self.max_bbox, bboxes.shape[1]), dtype=np.float32)
-            new_bboxes[:bboxes.shape[0]] = bboxes
-            example["inst3d"] = new_bboxes
+        # bboxes = example["inst3d"]
+        # if bboxes.shape[0] < self.max_bbox:
+        #     new_bboxes = np.zeros((self.max_bbox, bboxes.shape[1]), dtype=np.float32)
+        #     new_bboxes[:bboxes.shape[0]] = bboxes
+        #     example["inst3d"] = new_bboxes
         return example
 
 

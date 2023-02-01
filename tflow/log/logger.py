@@ -40,10 +40,10 @@ class Logger:
         self.check_nan(pred, "pred")
         self.check_nan(loss_by_type, "loss")
         # pred["feat3d"] = tu3d.box_preprocess(grtr["feat3d"], pred["feat3d"], 0)
-        nms_2d_box, nms_3d_box = self.nms(pred)
+        nms_2d_box = self.nms(pred)
 
-        pred["inst2d"] = uf.slice_feature(nms_2d_box, uc.get_bbox_composition(False))
-        pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
+        pred["inst"] = uf.slice_feature(nms_2d_box, uc.get_bbox_composition(False))
+        # pred["inst3d"] = uf.slice_feature(nms_3d_box, uc.get_3d_bbox_composition(False))
 
         for key, feature_slices in grtr.items():
             grtr[key] = uf.convert_tensor_to_numpy(feature_slices)
@@ -54,14 +54,15 @@ class Logger:
         if step == 0 and self.epoch == 0:
             structures = {"grtr": grtr, "pred": pred, "loss": loss_by_type}
             self.save_model_structure(structures)
-
+        if step == 6:
+            print("a")
         self.history_logger(step, grtr, pred, loss_by_type, total_loss)
         # if self.exhaustive_logger:
         #     self.exhaustive_logger(step, grtr, pred, loss_by_type, total_loss)
         if self.visual_logger:
             splits = {}
             grtr_bbox_augmented = self.exapand_grtr_bbox(grtr, pred)
-            splits["2d"] = split_true_false(grtr_bbox_augmented["inst2d"], pred["inst2d"], cfg.Validation.TP_IOU_THRESH)
+            splits["2d"] = split_true_false(grtr_bbox_augmented["inst"], pred["inst"], cfg.Validation.TP_IOU_THRESH)
             splits["3d"] = split_tp_fp_fn_3d(grtr_bbox_augmented, pred, cfg.Validation.TP_IOU_THRESH)
             # self.visual_logger(step, grtr, pred, splits)
             # self.save_pred(step, grtr, pred)
@@ -179,47 +180,47 @@ class Logger:
         analyze_summary.to_csv(analyze_filename, encoding='utf-8', index=False, float_format='%.4f')
 
     def exapand_grtr_bbox(self, grtr, pred):
-        grtr_boxes_3d = self.merge_scale_hwa(grtr["feat3d"])
-        grtr_boxes_2d = self.merge_scale_hwa(grtr["feat2d"])
-        pred_boxes_2d = self.merge_scale_hwa(pred["feat2d"])
+        # grtr_boxes_3d = self.merge_scale_hwa(grtr["feat3d"])
+        grtr_boxes = self.merge_scale_hwa(grtr["feat"])
+        pred_boxes = self.merge_scale_hwa(pred["feat"])
 
-        best_probs = np.max(pred_boxes_2d["category"], axis=-1, keepdims=True)
-        grtr_boxes_2d["pred_ctgr_prob"] = best_probs
-        grtr_boxes_2d["pred_object"] = pred_boxes_2d["object"]
-        grtr_boxes_2d["pred_score"] = best_probs * pred_boxes_2d["object"]
+        best_probs = np.max(pred_boxes["category"], axis=-1, keepdims=True)
+        grtr_boxes["pred_ctgr_prob"] = best_probs
+        grtr_boxes["pred_object"] = pred_boxes["object"]
+        grtr_boxes["pred_score"] = best_probs * pred_boxes["object"]
 
-        grtr_boxes_3d["pred_ctgr_prob"] = best_probs
-        grtr_boxes_3d["pred_object"] = pred_boxes_2d["object"]
-        grtr_boxes_3d["pred_score"] = best_probs * pred_boxes_2d["object"]
+        # grtr_boxes_3d["pred_ctgr_prob"] = best_probs
+        # grtr_boxes_3d["pred_object"] = pred_boxes_2d["object"]
+        # grtr_boxes_3d["pred_score"] = best_probs * pred_boxes_2d["object"]
 
-        batch, _, __ = grtr["inst2d"]["yxhw"].shape
+        batch, _, __ = grtr["inst"]["yxhw"].shape
         # numbox = cfg.Validation.MAX_BOX
-        numbox = grtr["inst2d"]["yxhw"].shape[1]
-        objectness = grtr_boxes_2d["object"]
-        for key in grtr_boxes_3d:
+        numbox = grtr["inst"]["yxhw"].shape[1]
+        objectness = grtr_boxes["object"]
+        # for key in grtr_boxes_3d:
+        #     features = []
+        #     for frame_idx in range(batch):
+        #         valid_mask = objectness[frame_idx, :, 0].astype(np.bool)
+        #         feature = grtr_boxes_3d[key]
+        #         feature = feature[frame_idx, valid_mask, :]
+        #         feature = np.pad(feature, [(0, numbox - feature.shape[0]), (0, 0)])
+        #         features.append(feature)
+        #
+        #     features = np.stack(features, axis=0)
+        #     grtr_boxes_3d[key] = features
+
+        for key in grtr_boxes:
             features = []
             for frame_idx in range(batch):
                 valid_mask = objectness[frame_idx, :, 0].astype(np.bool)
-                feature = grtr_boxes_3d[key]
+                feature = grtr_boxes[key]
                 feature = feature[frame_idx, valid_mask, :]
                 feature = np.pad(feature, [(0, numbox - feature.shape[0]), (0, 0)])
                 features.append(feature)
 
             features = np.stack(features, axis=0)
-            grtr_boxes_3d[key] = features
-
-        for key in grtr_boxes_2d:
-            features = []
-            for frame_idx in range(batch):
-                valid_mask = objectness[frame_idx, :, 0].astype(np.bool)
-                feature = grtr_boxes_2d[key]
-                feature = feature[frame_idx, valid_mask, :]
-                feature = np.pad(feature, [(0, numbox - feature.shape[0]), (0, 0)])
-                features.append(feature)
-
-            features = np.stack(features, axis=0)
-            grtr_boxes_2d[key] = features
-        return {"inst2d": grtr_boxes_2d, "inst3d": grtr_boxes_3d}
+            grtr_boxes[key] = features
+        return {"inst": grtr_boxes}
 
     def merge_scale_hwa(self, features):
         stacked_feat = {}

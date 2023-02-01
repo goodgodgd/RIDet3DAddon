@@ -14,23 +14,23 @@ class SavePred:
         self.categories = {i: ctgr_name for i, ctgr_name in enumerate(cfg3d.Dataloader.CATEGORY_NAMES["category"])}
 
     def __call__(self, step, grtr, pred):
-        batch, _, __ = pred["inst2d"]["yxhw"].shape
+        batch, _, __ = pred["inst"]["yxhw"].shape
         for i in range(batch):
             filename = op.join(self.result_path, f"{step * batch + (i):06d}.txt")
             im_shape = grtr["image_shape"][i]
-            bbox_2d = self.extract_valid_data(pred["inst2d"], i, "object")
-            bbox_3d = self.extract_valid_data(pred["inst3d"], i, "category")
-            tlbr_bboxes = uf.convert_box_format_yxhw_to_tlbr(bbox_2d["yxhw"])
+            bbox = self.extract_valid_data(pred["inst"], i, "object")
+            # bbox_3d = self.extract_valid_data(pred["inst3d"], i, "category")
+            tlbr_bboxes = uf.convert_box_format_yxhw_to_tlbr(bbox["yxhw"])
             file = open(os.path.join(filename), 'w')
             text_to_write = ''
-            for n in range(bbox_2d["yxhw"].shape[0]):
+            for n in range(bbox["yxhw"].shape[0]):
                 tlbr = tlbr_bboxes[n]
-                ctgr = bbox_2d["category"][n].astype(int)
-                yx = bbox_3d["yx"][n]
-                z = bbox_2d["z"][n]
-                hwl = bbox_3d["hwl"][n]
-                ry = bbox_3d["theta"][n]
-                score = bbox_2d["score"][n]
+                ctgr = bbox["category"][n].astype(int)
+                yx = bbox["yx"][n]
+                z = bbox["z"][n]
+                hwl = bbox["hwl"][n]
+                ry = bbox["theta"][n]
+                score = bbox["pred_score"][n]
                 alpha = np.arctan2(z, yx[-1])
                 ctgr = self.categories[ctgr[0]]
                 text_to_write += (f'{ctgr} {-1} {-1} {alpha[0]:.6f} '

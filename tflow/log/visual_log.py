@@ -117,7 +117,7 @@ class VisualLog:
         if self.visual_heatmap_path:
             image_zero = np.zeros_like(image[..., :-1])
             self.draw_box_heatmap(grtr, pred, image_zero, i, step, batch)
-        if step % 50 == 10:
+        if step % 2 == 1:
             cv2.imshow("detection_result", vlog_image)
             cv2.waitKey(10)
         filename = op.join(self.vlog_path, f"{step * batch + i:05d}.jpg")
@@ -137,7 +137,7 @@ class VisualLog:
         image_pred, bev_image = self.imple_3d_draw_boxes(image_pred, bev_image, splits["pred_fp"], i, [], (0, 0, 255),
                                                          (0, 0, 255), grtr["intrinsic"])
         front_view = np.concatenate([image_pred, image_grtr], axis=0)
-        if step % 50 == 10:
+        if step % 2 == 1:
             cv2.imshow("front_view_result", front_view)
             cv2.imshow("bev_view_result", bev_image)
             cv2.waitKey(10)
@@ -185,10 +185,10 @@ class VisualLog:
     def draw_box_heatmap(self, grtr, pred, image_zero, i, step, batch):
         box_heatmap = list()
         for scale in range(len(cfg.ModelOutput.FEATURE_SCALES)):
-            feat_shape = pred["feat2d"]["merged"][scale].shape[1:4]
+            feat_shape = pred["feat"]["merged"][scale].shape[1:4]
             v_objectness = self.draw_object(image_zero,
-                                            grtr["feat2d"]["object"][scale],
-                                            pred["feat2d"]["object"][scale],
+                                            grtr["feat"]["object"][scale],
+                                            pred["feat"]["object"][scale],
                                             i, feat_shape)
             box_heatmap.append(v_objectness)
         box_heatmap = np.concatenate(box_heatmap, axis=1)
@@ -223,7 +223,11 @@ class VisualLog:
     def imple_3d_draw_boxes(self, image, bev_image, bboxes, frame_idx, log_keys, tp_fp_color, gt_pr_color, intrinsic):
         valid_mask = bboxes["hwl"][frame_idx][:, 0] > 0  # (N,) h>0
         box_ctgr = bboxes["category"][frame_idx][valid_mask, 0].astype(np.int32)  # (N, 1)
-        occluded = bboxes["occluded"][frame_idx][valid_mask, 0].astype(np.int32)  # (N, 1)
+        # occluded = bboxes["occluded"][frame_idx][valid_mask, 0].astype(np.int32)  # (N, 1)
+        if "occlusion_ratio" in bboxes.keys():
+            occluded = bboxes["occlusion_ratio"][frame_idx][valid_mask, 0]  # (N, 1)
+        else:
+            occluded = bboxes["occluded"][frame_idx][valid_mask, 0].astype(np.int32)
         yx = bboxes["yx"][frame_idx][valid_mask]
         z = bboxes["z"][frame_idx][valid_mask]
         hwl = bboxes["hwl"][frame_idx][valid_mask]
@@ -287,7 +291,8 @@ class VisualLog:
 
         for i, (point, center) in enumerate(zip(proj_box, proj_box_center)):
             annotation = "dontcare" if category[i] < 0 else f"{self.categories[category[i]]}"
-            occlude = occluded[i]
+            # occlude = occluded[i]
+            occlude = f"{occluded[i]:.4f}"
             depth = f"{z[..., 0][i]:.2f}"
             image = self.draw_line(image, point, center, color, annotation, occlude, depth)
         return image

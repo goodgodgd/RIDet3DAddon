@@ -53,7 +53,7 @@ class FeatureEncoder:
 
 # ======================================
 import numpy as np
-from RIDet3DAddon.tflow.model.decoder_3d import FeatureDecoder
+# from RIDet3DAddon.tflow.model.decoder_3d import FeatureDecoder
 import utils.tflow.util_function as uf
 
 

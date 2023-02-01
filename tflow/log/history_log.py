@@ -19,8 +19,8 @@ class HistoryLog:
         result = dict()
         for key, log_object in self.loggers.items():
             result[key] = log_object(grtr, pred, loss)
-        num_ctgr = pred["feat2d"]["category"][0].shape[-1]
-        metric = count_true_positives(grtr["inst2d"], pred["inst2d"], num_ctgr)
+        num_ctgr = pred["feat"]["category"][0].shape[-1]
+        metric = count_true_positives(grtr["inst"], pred["inst"], num_ctgr)
         result.update({"total_loss": total_loss.numpy()})
         result.update(metric)
         # metric_3d = count_true_positives_3d(grtr["inst3d"], pred["inst3d"], grtr["inst2d"]["object"], num_ctgr)
