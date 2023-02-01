@@ -41,7 +41,7 @@ class TotalAugment:
         batch_size = features["image"].shape[0]
         for i in range(batch_size):
             image = features["image"][i].numpy()
-            bboxes = features["inst2d"][i]
+            bboxes = features["inst"][i]
             inst3d = features["inst3d"][i]
             raw_data = self.preprocess(image, bboxes, inst3d)
             raw_data["imshape"] = features["image_shape"][i]

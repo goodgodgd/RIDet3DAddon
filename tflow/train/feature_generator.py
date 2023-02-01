@@ -11,8 +11,9 @@ class FeatureMapDistributer:
         self.ditrib_policy = eval(ditrib_policy)(imshape, anchors_per_scale)
 
     def __call__(self, features):
-        for key in ["inst2d", "inst3d"]:
-            features[key] = uf3d.merge_and_slice_features(features[key], True, key)
+        # for key in ["inst2d", "inst3d"]:
+        #     features[key] = uf3d.merge_and_slice_features(features[key], True, key)
+        features["inst"] = uf3d.merge_and_slice_features(features["inst"], True, "inst")
         features = uf.convert_tensor_to_numpy(features)
         features = self.ditrib_policy(features)
         return features
@@ -64,7 +65,7 @@ class SinglePositivePolicy(ObjectDistribPolicy):
             :param features: {inst_box: {"yxhw": ..., "object": ..., ...}, inst_dc{...}, ...}
             :return:
             """
-        bboxes = box_features["inst2d"]["yxhw"]
+        bboxes = box_features["inst"]["yxhw"]
         boxes_hw = bboxes[..., np.newaxis, 2:4]  # (B, N, 1, 2)
         anchors_hw = self.anchor_ratio[np.newaxis, np.newaxis, :, :]  # (1, 1, 3, 2)
         inter_hw = np.minimum(boxes_hw, anchors_hw)  # (B, N, 3, 2)
@@ -72,47 +73,47 @@ class SinglePositivePolicy(ObjectDistribPolicy):
         union_area = boxes_hw[..., 0] * boxes_hw[..., 1] + anchors_hw[..., 0] * anchors_hw[..., 1] - inter_area
         iou = inter_area / union_area
         best_anchor_indices = np.argmax(iou, axis=-1)
-        out_2d_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
-                                     box_features["inst2d"]["merged"].shape[-1] + 1), dtype=np.float32)
+        out_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
+                                     box_features["inst"]["merged"].shape[-1] + 1), dtype=np.float32)
                            for feat_shape in self.feat_shapes]
-        out_3d_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
-                                     box_features["inst3d"]["merged"].shape[-1] + 1), dtype=np.float32)
-                           for feat_shape in self.feat_shapes]
-        batch_2d_features = [np.zeros(
-            (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst2d"]["merged"].shape[-1]),
+        # out_3d_features = [np.zeros((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale,
+        #                              box_features["inst3d"]["merged"].shape[-1] + 1), dtype=np.float32)
+        #                    for feat_shape in self.feat_shapes]
+        batch_features = [np.zeros(
+            (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst"]["merged"].shape[-1]),
             dtype=np.float32)
                           for feat_shape in self.feat_shapes]
-        batch_3d_features = [np.zeros(
-            (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst3d"]["merged"].shape[-1]),
-            dtype=np.float32)
-                          for feat_shape in self.feat_shapes]
+        # batch_3d_features = [np.zeros(
+        #     (bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, box_features["inst3d"]["merged"].shape[-1]),
+        #     dtype=np.float32)
+        #                   for feat_shape in self.feat_shapes]
         anchor_map = [np.ones((bboxes.shape[0], feat_shape[0], feat_shape[1], self.num_anchor_per_scale, 1), dtype=np.float32) * (-1)
                       for feat_shape in self.feat_shapes]
         for batch in range(bboxes.shape[0]):
-            for anchor_index, box2d, box3d in zip(best_anchor_indices[batch], box_features["inst2d"]["merged"][batch],
-                                                  box_features["inst3d"]["merged"][batch]):
-                if np.all(box2d == 0):
+            for anchor_index, box in zip(best_anchor_indices[batch], box_features["inst"]["merged"][batch]):
+                if np.all(box == 0):
                     break
                 scale_index = anchor_index // self.num_anchor_per_scale
                 anchor_index_in_scale = anchor_index % self.num_anchor_per_scale
-                feat_2d_map = batch_2d_features[scale_index]
-                feat_3d_map = batch_3d_features[scale_index]
+                feat_map = batch_features[scale_index]
+                # feat_3d_map = batch_3d_features[scale_index]
                 anchor_scale_map = anchor_map[scale_index]
                 # bbox: [y, x, h, w, category]
-                grid_yx = (box2d[:2] * self.feat_shapes[scale_index]).astype(np.int32)
+                grid_yx = (box[:2] * self.feat_shapes[scale_index]).astype(np.int32)
                 assert (grid_yx >= 0).all() and (grid_yx < self.feat_shapes[scale_index]).all()
                 # # bbox: [y, x, h, w, 1, major_category, minor_category, depth]
-                feat_2d_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box2d
-                feat_3d_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box3d
+                feat_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box
+                # feat_3d_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale] = box3d
                 anchor_scale_map[batch, grid_yx[0], grid_yx[1], anchor_index_in_scale, 0] = anchor_index
-                out_2d_features[scale_index] = np.concatenate([feat_2d_map, anchor_scale_map], axis=-1)
-                out_3d_features[scale_index] = np.concatenate([feat_3d_map, anchor_scale_map], axis=-1)
+                out_features[scale_index] = np.concatenate([feat_map, anchor_scale_map], axis=-1)
+                # out_3d_features[scale_index] = np.concatenate([feat_3d_map, anchor_scale_map], axis=-1)
 
-        box_features["feat2d"] = out_2d_features
-        box_features["feat3d"] = out_3d_features
-        for key in ["feat2d", "feat3d"]:
-            box_features[key] = uf3d.merge_and_slice_features(box_features[key], True, key)
-        box_features["feat2d_logit"] = self.decoder2d.inverse(box_features["feat2d"])
+        box_features["feat"] = out_features
+        # box_features["feat3d"] = out_3d_features
+        # for key in ["feat2d", "feat3d"]:
+        #     box_features[key] = uf3d.merge_and_slice_features(box_features[key], True, key)
+        box_features["feat"] = uf3d.merge_and_slice_features(box_features["feat"], True, "feat")
+        box_features["feat_logit"] = self.decoder2d.inverse(box_features["feat"])
         box_features = self.feature_merge(box_features)
         return box_features
 

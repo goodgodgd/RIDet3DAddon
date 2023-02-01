@@ -7,8 +7,8 @@ class Paths:
     RESULT_ROOT = "/home/eagle/mun_workspace"
     DATAPATH = op.join(RESULT_ROOT, "tfrecord")
     CHECK_POINT = op.join(RESULT_ROOT, "ckpt")
-    CONFIG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector/RIDet3DAddon/config.py'
-    META_CFG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector/RIDet3DAddon/tflow/config_dir/meta_config.py'
+    CONFIG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector_yolo3d/RIDet3DAddon/config.py'
+    META_CFG_FILENAME = '/home/eagle/mun_workspace/Detector/RILabDetector_yolo3d/RIDet3DAddon/tflow/config_dir/meta_config.py'
 
 
 class Datasets:
@@ -49,29 +49,35 @@ class ModelOutput:
 
     NUM_ANCHORS_PER_SCALE = 1
     # MAIN -> FMAP, NMS -> INST
-    GRTR_MAIN_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1, "anchor_ind": 1}
+    GRTR_MAIN_COMPOSITION = {"yxhw": 4, "z": 1, "yx": 2, "hwl": 3, "theta": 1, "object": 1, "occluded": 1,
+                             "category": 1, "anchor_ind": 1}
     PRED_MAIN_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE)
-    GRTR_3D_MAIN_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1, "anchor_ind": 1}
-    PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE)
+    # GRTR_3D_MAIN_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1, "anchor_ind": 1}
+    # PRED_3D_MAIN_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE)
     PRED_HEAD_COMPOSITION = params.TrainParams.get_pred_composition(IOU_AWARE, True)
-    PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE, True)
+    # PRED_3D_HEAD_COMPOSITION = params.TrainParams.get_3d_pred_composition(IOU_AWARE, True)
 
-    GRTR_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1}
-    PRED_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "object": 1, "category": 1, "ctgr_prob": 1, "score": 1, "anchor_ind": 1}
+    GRTR_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "yx": 2, "hwl": 3, "theta": 1, "object": 1, "occluded": 1, "category": 1}
+    PRED_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "yx": 2, "hwl": 3, "theta": 1, "object": 1, "occluded": 1,
+                            "occluded_probs": 3, "category": 1, "pred_ctgr_prob": 1, "category_probs": 4, "pred_score": 1,
+                            "anchor_ind": 1}
+    # PRED_NMS_COMPOSITION = {"yxhw": 4, "z": 1, "yx": 2, "hwl": 3, "theta": 1, "object": 1, "occluded": 1,
+    #                         "occluded_probs": 3,"category": 1, "pred_ctgr_prob": 1, "ctgr_prob": 4, "score": 1,
+    #                         "anchor_ind": 1}
 
-    GRTR_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1}
-    PRED_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "z": 1, "theta": 1, "occluded": 1, "occluded_probs": 3,
-                               "object_probs": 1, "category": 1, "category_probs": 4}
+    # GRTR_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "theta": 1, "occluded": 1, "category": 1}
+    # PRED_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "z": 1, "theta": 1, "occluded": 1, "occluded_probs": 3,
+    #                            "object_probs": 1, "category": 1, "category_probs": 4}
     # PRED_3D_NMS_COMPOSITION = {"yx": 2, "hwl": 3, "z": 1, "theta": 1, "occluded": 1, "category": 1}
 
     NUM_MAIN_CHANNELS = sum(PRED_MAIN_COMPOSITION.values())
 
 
 class Architecture:
-    BACKBONE = ["Resnet", "Darknet53", "CSPDarknet53", "Efficientnet"][2]
-    NECK = ["FPN", "PAN", "BiFPN"][1]
+    BACKBONE = ["Resnet", "Darknet53", "CSPDarknet53", "Efficientnet"][1]
+    NECK = ["FPN", "PAN", "BiFPN"][0]
     HEAD = ["Single", "Double", "Efficient"][0]
-    BACKBONE_CONV_ARGS = {"activation": "mish", "scope": "back"}
+    BACKBONE_CONV_ARGS = {"activation": "leaky_relu", "scope": "back"}
     NECK_CONV_ARGS = {"activation": "leaky_relu", "scope": "neck"}
     # HEAD_CONV_ARGS = {"activation": False, "scope": "head"}
     HEAD_CONV_ARGS = {"activation": "leaky_relu", "scope": "head"}
@@ -96,17 +102,17 @@ class Architecture:
 
 
 class Train:
-    CKPT_NAME = "test_1202_v1"
+    CKPT_NAME = "yolov3_3d"
     MODE = ["eager", "graph", "distribute"][1]
-    # AUGMENT_PROBS = None
-    AUGMENT_PROBS = {"Flip": 1.0}
+    AUGMENT_PROBS = None
+    # AUGMENT_PROBS = {"Flip": 1.0}
     # AUGMENT_PROBS = {"ColorJitter": 0.5, "Flip": 1.0, "CropResize": 1.0, "Blur": 0.2}
-    DATA_BATCH_SIZE = 4
-    # DATA_BATCH_SIZE = 1
+    # DATA_BATCH_SIZE = 16
+    DATA_BATCH_SIZE = 1
     BATCH_SIZE = DATA_BATCH_SIZE * 2 if AUGMENT_PROBS else DATA_BATCH_SIZE
     GLOBAL_BATCH = BATCH_SIZE
     TRAINING_PLAN = params.TrainingPlan.KITTI_SIMPLE
-    DETAIL_LOG_EPOCHS = list(range(10, 200, 50))
+    DETAIL_LOG_EPOCHS = list(range(10, 200, 10))
     IGNORE_MASK = True
     # AUGMENT_PROBS = {"Flip": 0.2}
 
@@ -154,7 +160,7 @@ class AnchorGeneration:
 
 
 class NmsInfer:
-    MAX_OUT = [0, 20, 20, 20, 10, 10]
+    MAX_OUT = [0, 20, 20, 10, 10, 10]
     IOU_THRESH = [1., 0.5, 0.5, 0.5, 0.5, 0.5]
     SCORE_THRESH = [1, 0.2, 0.2, 0.2, 0.2, 0.9]
     IOU_3D_THRESH = [1.0, 0.4, 0.4, 0.4, 0.4, 0.4]

@@ -22,7 +22,7 @@ def convert_box_scale_01_to_pixel(boxes_norm):
 
 def merge_and_slice_features(featin, is_gt: bool, feat_type: str):
     featout = {}
-    if feat_type == "inst2d":
+    if feat_type == "inst":
         composition = uc.get_bbox_composition(is_gt)
         featout["merged"] = featin
         featout.update(slice_feature(featin, composition))
@@ -33,6 +33,15 @@ def merge_and_slice_features(featin, is_gt: bool, feat_type: str):
         featout.update(slice_feature(featin, composition))
 
     if feat_type.startswith("feat2d"):
+        composition = uc.get_channel_composition(is_gt)
+        featout["merged"] = featin
+        newfeat = []
+        for scale_data in featin:
+            newfeat.append(slice_feature(scale_data, composition))
+        newfeat = scale_align_featmap(newfeat)
+        featout.update(newfeat)
+
+    if feat_type.startswith("feat"):
         composition = uc.get_channel_composition(is_gt)
         featout["merged"] = featin
         newfeat = []

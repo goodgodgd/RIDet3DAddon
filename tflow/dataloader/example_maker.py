@@ -31,16 +31,16 @@ class ExampleMaker:
         example["depth"] = self.data_reader.get_depth(index)
         example["intrinsic"] = self.data_reader.get_intrinsic(index)
         raw_hw_shape = example["image"].shape[:2]
-        bboxes2d, bboxes3d, categories = self.data_reader.get_bboxes(index, raw_hw_shape)
+        bboxes, categories = self.data_reader.get_bboxes(index, raw_hw_shape)
         # Do NOT use dontcares
-        example["inst2d"], example["inst3d"], _ = self.merge_box_and_category(bboxes2d, bboxes3d, categories)
+        example["inst"], _ = self.merge_box_and_category(bboxes, categories)
         example = self.preprocess_example(example)
         # print("file name: ", self.data_reader.get_frame_name(index))
         if index % 100 == 10:
             self.show_example(example)
         return example
 
-    def merge_box_and_category(self, bboxes2d, bboxes3d, categories):
+    def merge_box_and_category(self, bboxes, categories):
         reamapped_categories = []
         for category_str in categories:
             if category_str in self.category_names["category"]:
@@ -52,15 +52,15 @@ class ExampleMaker:
             reamapped_categories.append(major_index)
         reamapped_categories = np.array(reamapped_categories)[..., np.newaxis]
         # bbox: yxhw, obj, ctgr (6)
-        bboxes2d = np.concatenate([bboxes2d, reamapped_categories], axis=-1)
-        bboxes3d = np.concatenate([bboxes3d, reamapped_categories], axis=-1)
-        dontcare = bboxes2d[bboxes2d[..., -1] == -1]
-        bboxes2d = bboxes2d[bboxes2d[..., -1] >= 0]
-        bboxes3d = bboxes3d[bboxes3d[..., -1] >= 0]
-        return bboxes2d, bboxes3d, dontcare
+        bboxes = np.concatenate([bboxes, reamapped_categories], axis=-1)
+        # bboxes3d = np.concatenate([bboxes3d, reamapped_categories], axis=-1)
+        dontcare = bboxes[bboxes[..., -1] == -1]
+        bboxes = bboxes[bboxes[..., -1] >= 0]
+        # bboxes3d = bboxes3d[bboxes3d[..., -1] >= 0]
+        return bboxes, dontcare
 
     def show_example(self, example):
-        image = tu.draw_boxes(example["image"], example["inst2d"], example["inst3d"], self.category_names)
+        image = tu.draw_boxes(example["image"], example["inst"], self.category_names)
         depth = example["depth"]
         depth[depth > self.max_depth] = self.max_depth
         depth = cv2.applyColorMap(depth.astype(np.uint8)*5, cv2.COLORMAP_TURBO)

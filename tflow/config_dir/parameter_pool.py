@@ -80,8 +80,8 @@ class TfrParams:
 class TrainParams:
     @classmethod
     def get_pred_composition(cls, iou_aware, categorized=False):
-        cls_composition = {"category": len(TfrParams.CATEGORY_NAMES["category"])}
-        reg_composition = {"yxhw": 4, "z": 1, "object": 1}
+        cls_composition = { "occluded": 3, "category": len(TfrParams.CATEGORY_NAMES["category"])}
+        reg_composition = {"yxhw": 4, "z": 1, "yx": 2, "hwl": 3, "theta": 1, "object": 1}
         if iou_aware:
             reg_composition["ioup"] = 1
         composition = {"reg": reg_composition, "cls": cls_composition}

@@ -47,8 +47,8 @@ class TrainValBase:
 
             if step >= self.epoch_steps:
                 break
-         #   if step >= 10:
-            #    break
+            # if step >= 100:
+            #     break
 
         print("")
         logger.finalize(epoch_start)

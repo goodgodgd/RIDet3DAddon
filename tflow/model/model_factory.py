@@ -5,9 +5,9 @@ from tensorflow import keras
 import model.tflow.backbone as back
 import model.tflow.neck as neck
 import model.tflow.head as head2d
-import RIDet3DAddon.tflow.model.head_3d as head3d
+# import RIDet3DAddon.tflow.model.head_3d as head3d
 import RIDet3DAddon.tflow.model.decoder_2d as decoder2d
-import RIDet3DAddon.tflow.model.decoder_3d as decoder3d
+# import RIDet3DAddon.tflow.model.decoder_3d as decoder3d
 import utils.tflow.util_function as uf
 import RIDet3DAddon.config as cfg3d
 import model.tflow.model_util as mu
@@ -24,7 +24,7 @@ class ModelFactory:
                  head_conv_args=cfg3d.Architecture.HEAD_CONV_ARGS,
                  num_anchors_per_scale=cfg3d.ModelOutput.NUM_ANCHORS_PER_SCALE,
                  pred_composition=cfg3d.ModelOutput.PRED_HEAD_COMPOSITION,
-                 pred3d_composition=cfg3d.ModelOutput.PRED_3D_HEAD_COMPOSITION,
+                 # pred3d_composition=cfg3d.ModelOutput.PRED_3D_HEAD_COMPOSITION,
                  out_channels=cfg3d.ModelOutput.NUM_MAIN_CHANNELS,
                  training=True
                  ):
@@ -39,7 +39,7 @@ class ModelFactory:
         self.head_conv_args = head_conv_args
         self.num_anchors_per_scale = num_anchors_per_scale
         self.pred_composition = pred_composition
-        self.pred3d_composition = pred3d_composition
+        # self.pred3d_composition = pred3d_composition
         self.out_channels = out_channels
         self.training = training
         mu.CustomConv2D.CALL_COUNT = -1
@@ -52,8 +52,8 @@ class ModelFactory:
                                        self.num_anchors_per_scale, self.out_channels, None, None)
         head_model = head2d.head_factory(self.head_name, self.head_conv_args, self.training, self.num_anchors_per_scale,
                                          self.pred_composition, None, None)
-        head3d_model = head3d.head_factory(self.head_name, self.head_conv_args, self.training,
-                                           self.num_anchors_per_scale, self.pred3d_composition)
+        # head3d_model = head3d.head_factory(self.head_name, self.head_conv_args, self.training,
+        #                                    self.num_anchors_per_scale, self.pred3d_composition)
 
         input_tensor = tf.keras.layers.Input(shape=self.input_shape, batch_size=self.batch_size)
         input_tensor2 = tf.keras.layers.Input(shape=(3, 4), batch_size=self.batch_size)
@@ -64,14 +64,14 @@ class ModelFactory:
 
         head_features = head_model(neck_features)
         output_features = dict()
-        output_features["feat2d_logit"] = uf3d.merge_and_slice_features(head_features, False, "feat2d")
-        output_features["feat2d"] = decoder2d.FeatureDecoder(self.anchors_per_scale).decode(output_features["feat2d_logit"])
+        output_features["feat_logit"] = uf3d.merge_and_slice_features(head_features, False, "feat2d")
+        output_features["feat"] = decoder2d.FeatureDecoder(self.anchors_per_scale).decode(output_features["feat_logit"], input_tensor2)
 
-        head3d_features = head3d_model(neck_features, output_features["feat2d"]["yxhw"])
-        output_features["feat3d_logit"] = uf3d.merge_and_slice_features(head3d_features, False, "feat3d")
-        output_features["feat3d"] = decoder3d.FeatureDecoder().decode(output_features["feat3d_logit"],
-                                                                      input_tensor2,
-                                                                      output_features["feat2d"])
+        # head3d_features = head3d_model(neck_features, output_features["feat2d"]["yxhw"])
+        # output_features["feat3d_logit"] = uf3d.merge_and_slice_features(head3d_features, False, "feat3d")
+        # output_features["feat3d"] = decoder3d.FeatureDecoder().decode(output_features["feat3d_logit"],
+        #                                                               input_tensor2,
+        #                                                               output_features["feat2d"])
         for key in output_features.keys():
             for slice_key in output_features[key].keys():
                 if slice_key != "merged":

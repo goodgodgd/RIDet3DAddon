@@ -26,8 +26,8 @@ class CiouLoss(LossBase):
         :return: complete-iou loss (batch, HWA)
         """
         # object_mask: (batch, HWA, 1)
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
-        ciou_loss = self.compute_ciou(grtr["feat2d"]["yxhw"][scale], pred["feat2d"]["yxhw"][scale]) * object_mask[..., 0]
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
+        ciou_loss = self.compute_ciou(grtr["feat"]["yxhw"][scale], pred["feat"]["yxhw"][scale]) * object_mask[..., 0]
         # sum over object-containing grid cells
         scalar_loss = tf.reduce_sum(ciou_loss)
         return scalar_loss, ciou_loss
@@ -76,10 +76,10 @@ class IouL1SmoothLoss(LossBase):
         :return: complete-iou loss (batch, HWA)
         """
         # object_mask: (batch, HWA, 1)
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
         # grtr = self.merge_feature(grtr["feat2d"]["yxhw"][scale])
         # pred = self.merge_feature(pred["feat2d"]["yxhw"][scale])
-        iou_loss = self.compute_iou(grtr["feat2d"]["yxhw"][scale], pred["feat2d"]["yxhw"][scale]) * object_mask[..., 0]
+        iou_loss = self.compute_iou(grtr["feat"]["yxhw"][scale], pred["feat"]["yxhw"][scale]) * object_mask[..., 0]
         # sum over object-containing grid cells
         scalar_loss = tf.reduce_sum(iou_loss)
         if self.use_l1:
@@ -98,7 +98,7 @@ class IouL1SmoothLoss(LossBase):
 
 class L1smooth(LossBase):
     def __call__(self, grtr, pred, auxi, scale):
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)  # (batch, HWA)
         l1_loss = huber_loss(grtr["feat2d_logit"]["yxhw"][scale], pred["feat2d_logit"]["yxhw"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(l1_loss)
@@ -117,8 +117,8 @@ class BoxObjectnessLoss(LossBase):
         :param auxi: auxiliary data
         :return: objectness loss (batch, HWA)
         """
-        grtr_obj = grtr["feat2d"]["object"][scale]
-        pred_obj = pred["feat2d"]["object"][scale]
+        grtr_obj = grtr["feat"]["object"][scale]
+        pred_obj = pred["feat"]["object"][scale]
         ignore_mask = auxi["ignore_mask"]
         conf_focal = tf.pow(grtr_obj - pred_obj, 2)
         obj_loss = tf.keras.losses.binary_crossentropy(grtr_obj, pred_obj) * conf_focal[..., 0]
@@ -164,19 +164,19 @@ class MajorCategoryLoss(CategoryLoss):
         :param auxi: auxiliary data
         :return: category loss (batch, HWA, K)
         """
-        object_mask, valid_category = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32), auxi["valid_category"]
-        scalar_loss, category_loss = self.compute_category_loss(grtr["feat2d"]["category"][scale],
-                                                                pred["feat2d"]["category"][scale],
+        object_mask, valid_category = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32), auxi["valid_category"]
+        scalar_loss, category_loss = self.compute_category_loss(grtr["feat"]["category"][scale],
+                                                                pred["feat"]["category"][scale],
                                                                 object_mask * valid_category)
         return scalar_loss, category_loss
 
 
 class HWLLoss(LossBase):
     def __call__(self, grtr, pred, auxi, scale):
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
-        pred["feat3d_logit"] = self.box_preprocess(pred["feat3d_logit"], grtr["feat3d"], pred["feat3d"], scale)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
+        pred["feat_logit"] = self.box_preprocess(pred["feat_logit"], grtr["feat"], pred["feat"], scale)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        hwl_loss = huber_loss(auxi["feat3d_logit"]["hwl"][scale], pred["feat3d_logit"]["hwl"][scale]) * object_mask[..., 0]
+        hwl_loss = huber_loss(auxi["feat_logit"]["hwl"][scale], pred["feat_logit"]["hwl"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(hwl_loss)
         return scalar_loss, hwl_loss
 
@@ -193,18 +193,18 @@ class HWLLoss(LossBase):
 
 class YXLoss(LossBase):
     def __call__(self, grtr, pred, auxi, scale):
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        yx_loss = huber_loss(grtr["feat3d"]["yx"][scale], pred["feat3d"]["yx"][scale]) * object_mask[..., 0]
+        yx_loss = huber_loss(grtr["feat"]["yx"][scale], pred["feat"]["yx"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(yx_loss)
         return scalar_loss, yx_loss
 
 
 class DepthLoss(LossBase):
     def __call__(self, grtr, pred, auxi, scale):
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
         huber_loss = tf.keras.losses.Huber(reduction=tf.keras.losses.Reduction.NONE)
-        depth_loss = huber_loss(grtr["feat2d"]["z"][scale], pred["feat2d"]["z"][scale]) * object_mask[..., 0]
+        depth_loss = huber_loss(grtr["feat"]["z"][scale], pred["feat"]["z"][scale]) * object_mask[..., 0]
         scalar_loss = tf.reduce_sum(depth_loss)
         return scalar_loss, depth_loss
 
@@ -215,8 +215,8 @@ class ThetaLoss(LossBase):
         self.beta = beta
 
     def __call__(self, grtr, pred, auxi, scale):
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
-        c_theta = tf.math.cos(4*(grtr["feat3d"]["theta"][scale] - pred["feat3d"]["theta"][scale]))
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
+        c_theta = tf.math.cos(4*(grtr["feat"]["theta"][scale] - pred["feat"]["theta"][scale]))
         theta_loss = ((1.015 - 0.5/self.beta * tf.math.log((self.alpha+c_theta)/(self.alpha-c_theta))) * object_mask)[..., 0]
         scalar_loss = tf.reduce_sum(theta_loss)
         return scalar_loss, theta_loss
@@ -230,12 +230,12 @@ class OccludedLoss(LossBase):
         :param auxi: auxiliary data
         :return: distance loss (batch, HWA)
         """
-        num_ocld = pred["feat3d"]["occluded"][scale].shape[-1]
-        grtr_ocld = tf.cast(grtr["feat3d"]["occluded"][scale], dtype=tf.int32)
+        num_ocld = pred["feat"]["occluded"][scale].shape[-1]
+        grtr_ocld = tf.cast(grtr["feat"]["occluded"][scale], dtype=tf.int32)
         grtr_onehot = tf.one_hot(grtr_ocld[..., 0], depth=num_ocld, axis=-1)[..., tf.newaxis]
-        object_mask = tf.cast(grtr["feat2d"]["object"][scale] == 1, dtype=tf.float32)
+        object_mask = tf.cast(grtr["feat"]["object"][scale] == 1, dtype=tf.float32)
         valid_occluded_mask = tf.cast(grtr_ocld < 3, dtype=tf.float32)
-        pred_ocld = pred["feat3d"]["occluded"][scale]  # (batch, HWA, K)
+        pred_ocld = pred["feat"]["occluded"][scale]  # (batch, HWA, K)
         # occluded_loss: (batch, HWA, K)
         occluded_loss = tf.losses.binary_crossentropy(grtr_onehot, pred_ocld[..., tf.newaxis],
                                                       label_smoothing=0.04) * object_mask * valid_occluded_mask

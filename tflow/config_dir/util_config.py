@@ -11,11 +11,11 @@ def get_channel_composition(is_gt: bool):
         return cfg3d.ModelOutput.PRED_MAIN_COMPOSITION
 
 
-def get_3d_channel_composition(is_gt: bool):
-    if is_gt:
-        return cfg3d.ModelOutput.GRTR_3D_MAIN_COMPOSITION
-    else:
-        return cfg3d.ModelOutput.PRED_3D_MAIN_COMPOSITION
+# def get_3d_channel_composition(is_gt: bool):
+#     if is_gt:
+#         return cfg3d.ModelOutput.GRTR_3D_MAIN_COMPOSITION
+#     else:
+#         return cfg3d.ModelOutput.PRED_3D_MAIN_COMPOSITION
 
 
 def get_bbox_composition(is_gt: bool):
@@ -25,11 +25,11 @@ def get_bbox_composition(is_gt: bool):
         return cfg3d.ModelOutput.PRED_NMS_COMPOSITION
 
 
-def get_3d_bbox_composition(is_gt: bool):
-    if is_gt:
-        return cfg3d.ModelOutput.GRTR_3D_NMS_COMPOSITION
-    else:
-        return cfg3d.ModelOutput.PRED_3D_NMS_COMPOSITION
+# def get_3d_bbox_composition(is_gt: bool):
+#     if is_gt:
+#         return cfg3d.ModelOutput.GRTR_3D_NMS_COMPOSITION
+#     else:
+#         return cfg3d.ModelOutput.PRED_3D_NMS_COMPOSITION
 
 
 def get_img_shape(code="HW", dataset="kitti", scale_div=1):

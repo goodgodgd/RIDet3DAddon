@@ -91,7 +91,7 @@ def read_data_config(key, value):
     return {"parse_type": parse_type, "decode_type": decode_type, "shape": shape}
 
 
-def draw_boxes(image, bboxes, bboxes_3d, category_names, locations=None, box_format="yxhw"):
+def draw_boxes(image, bboxes, category_names, locations=None, box_format="yxhw"):
     """
     :param grid_feats:
     :param image: (height, width, 3), np.uint8
